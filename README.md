@@ -15,7 +15,7 @@ All seeded bikes were researched via web search against manufacturer sites, Pink
 - **No live pricing/inventory feed.** Everything is hardcoded in the `DATA` object in the script. If a manufacturer discontinues a model or changes spec, the widget won't know.
 - **Coverage is not exhaustive.** Each category includes roughly 13–20 bikes, weighted toward well-known, widely reviewed flagship builds. Many legitimate models (budget-tier builds, regional brands, alloy-frame versions of the same bike) are omitted.
 - **The XC tab's Devinci entry (Django) is a downcountry bike, not a true XC race bike** — Devinci doesn't currently make one. It's included so every category has a Devinci model, but it will sit off the cluster of dedicated XC race bikes on price and weight. Worth removing if you want that tab to stay strictly apples-to-apples.
-- **The DH tab's "Propain Rage"** was substituted for the requested "Propain Fury" — Propain has no model by that name. Worth double-checking if a different brand was intended.
+- **The DH tab's "Propain Rage"** was added as requested.
 - **The fit line is a simple linear regression** (least squares) on whatever bikes are currently checked "on." With only 13–20 points per category, it's sensitive to outliers — check the R² readout under the chart before treating the slope as meaningful, especially in categories with a wide price spread but few bikes at the extremes.
 - **User-added bikes and weight/price adjustments are session-only.** Nothing persists after a page refresh. If someone shares a link to the page, they get the default dataset, not your edits.
 
