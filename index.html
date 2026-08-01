@@ -1,3 +1,21 @@
+<!--
+  Weight vs. Price — MTB Scatterplot
+  Post Millennium Renaissance (postmillenniumrenaissance.com)
+
+  Single-file, zero-dependency HTML/CSS/JS. No build step — edit this file
+  directly and push. Deployed via GitHub Pages from this repo, iframed into
+  the main site's wrapper page (which carries the SEO/OG meta tags).
+
+  To add or edit bikes: find the DATA object below (search "DATA = {") and
+  edit the array for the relevant category. Each entry needs name, year,
+  price (USD), lbs, and mat ("carbon" or "alloy"). A validation pass runs
+  at load time and will warn in the browser console (F12 → Console) if an
+  entry looks malformed — check there first if the chart looks wrong after
+  an edit.
+
+  Last structural update: material filter, live CHF rate, accessibility
+  and error-handling pass.
+-->
 <!DOCTYPE html>
 <html lang="en" data-theme="fortwilliam">
 <head>
@@ -60,6 +78,14 @@
   }
 
   * { box-sizing: border-box; margin: 0; padding: 0; }
+  .sr-only {
+    position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+    overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; border: 0;
+  }
+  button:focus-visible, input:focus-visible, select:focus-visible,
+  a:focus-visible, [tabindex]:focus-visible {
+    outline: 2px solid var(--accent); outline-offset: 2px;
+  }
   body {
     background: var(--bg);
     color: var(--ink);
@@ -101,6 +127,34 @@
   .fit-btn.on { background: var(--accent); color: var(--panel); }
   .theme-toggle button { font-size: .72rem; padding: 5px 8px; }
 
+  /* Periodic shimmer highlight on a random, non-selected theme button --
+     purely decorative, invites people to notice the other color schemes. */
+  @keyframes theme-shimmer-ring {
+    0%   { box-shadow: 0 0 0 0 var(--accent-soft); }
+    50%  { box-shadow: 0 0 0 5px var(--accent-soft); }
+    100% { box-shadow: 0 0 0 0 rgba(0,0,0,0); }
+  }
+  @keyframes theme-shimmer-sweep {
+    0%   { left: -60%; }
+    100% { left: 130%; }
+  }
+  .theme-toggle button.shimmer {
+    position: relative;
+    overflow: hidden;
+    animation: theme-shimmer-ring 1.6s ease-in-out;
+  }
+  .theme-toggle button.shimmer::after {
+    content: "";
+    position: absolute; top: 0; left: -60%; width: 45%; height: 100%;
+    background: linear-gradient(120deg, transparent, rgba(255,255,255,.65), transparent);
+    animation: theme-shimmer-sweep 1.6s ease-in-out;
+    pointer-events: none;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .theme-toggle button.shimmer,
+    .theme-toggle button.shimmer::after { animation: none; }
+  }
+
   /* R^2 explainer tooltip */
   .r2-term {
     border-bottom: 1px dotted var(--muted); cursor: help; position: relative;
@@ -125,6 +179,20 @@
     font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
   }
   .mat-stats b { color: var(--accent); }
+
+  /* data integrity warning banner (only appears if validateData finds issues) */
+  .data-warning {
+    background: var(--accent-soft); border: 1px solid var(--accent); color: var(--ink);
+    font-size: .78rem; padding: 8px 12px; border-radius: 8px; margin-bottom: 10px;
+    line-height: 1.5;
+  }
+  .data-warning strong { color: var(--fit); }
+  .data-warning code { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: .74rem; }
+
+  /* visible error state if a render pass fails outright */
+  .render-error {
+    padding: 40px 16px; text-align: center; color: var(--muted); font-size: .85rem;
+  }
 
   /* chart panel */
   .panel { background: var(--panel); border: 1px solid var(--grid); border-radius: 14px; padding: 12px; }
@@ -206,34 +274,38 @@
   </header>
   <p class="subtitle">Flagship-tier mountain bikes plotted by MSRP and claimed weight, with model year. Toggle the fit line to see the going rate for a lighter bike — no free lunches, only tradeoffs.</p>
 
+  <div id="dataWarning"></div>
+
   <div class="controls">
-    <div class="tabs" id="tabs"></div>
-    <div class="toggle-group" id="unitToggle">
-      <button data-unit="lbs" class="active">lbs</button>
-      <button data-unit="kg">kg</button>
+    <div class="tabs" id="tabs" role="tablist" aria-label="Bike category"></div>
+    <div class="toggle-group" id="unitToggle" role="group" aria-label="Weight unit">
+      <button data-unit="lbs" class="active" aria-pressed="true">lbs</button>
+      <button data-unit="kg" aria-pressed="false">kg</button>
     </div>
-    <div class="toggle-group" id="currToggle">
-      <button data-curr="USD" class="active">USD $</button>
-      <button data-curr="CHF">CHF ₣</button>
+    <div class="toggle-group" id="currToggle" role="group" aria-label="Currency">
+      <button data-curr="USD" class="active" aria-pressed="true">USD $</button>
+      <button data-curr="CHF" aria-pressed="false">CHF ₣</button>
     </div>
-    <div class="toggle-group" id="matToggle" title="Frame material">
-      <button data-mat="all" class="active">Both</button>
-      <button data-mat="carbon">Carbon</button>
-      <button data-mat="alloy">Alloy</button>
+    <div class="toggle-group" id="matToggle" role="group" aria-label="Frame material filter">
+      <button data-mat="all" class="active" aria-pressed="true">Both</button>
+      <button data-mat="carbon" aria-pressed="false">Carbon</button>
+      <button data-mat="alloy" aria-pressed="false">Alloy</button>
     </div>
-    <button class="fit-btn on" id="fitBtn">Fit line: ON</button>
-    <div class="toggle-group theme-toggle" id="themeToggle" title="Color scheme">
-      <button data-theme="fortwilliam" class="active">Fort William</button>
-      <button data-theme="valdisole">Val di Sole</button>
-      <button data-theme="rampage">Rampage</button>
-      <button data-theme="leogang">Leogang</button>
+    <button class="fit-btn on" id="fitBtn" aria-pressed="true">Fit line: ON</button>
+    <div class="toggle-group theme-toggle" id="themeToggle" role="group" aria-label="Color scheme">
+      <button data-theme="fortwilliam" class="active" aria-pressed="true">Fort William</button>
+      <button data-theme="valdisole" aria-pressed="false">Val di Sole</button>
+      <button data-theme="rampage" aria-pressed="false">Rampage</button>
+      <button data-theme="leogang" aria-pressed="false">Leogang</button>
     </div>
   </div>
 
   <div class="panel">
-    <svg id="chart" viewBox="0 0 960 600" role="img" aria-label="Scatterplot of bike weight versus price"></svg>
-    <div class="fit-stats" id="fitStats"></div>
-    <div class="mat-stats" id="matStats"></div>
+    <svg id="chart" viewBox="0 0 960 600" role="img" aria-label="Scatterplot of bike weight versus price for the selected category">
+      <desc>A scatterplot chart. The same data is available, and easier to navigate with a screen reader, in the bike table below the chart.</desc>
+    </svg>
+    <div class="fit-stats" id="fitStats" aria-live="polite"></div>
+    <div class="mat-stats" id="matStats" aria-live="polite"></div>
   </div>
 
   <div class="table-panel">
@@ -243,6 +315,7 @@
     </div>
     <div id="tableWrap" class="collapsed">
       <table class="bikes">
+        <caption class="sr-only">Bikes in the selected category with price, weight, frame material, and per-bike adjustment controls. Checking or unchecking a row shows or hides that bike on the chart above.</caption>
         <thead>
           <tr>
             <th class="chk">On</th>
@@ -302,6 +375,32 @@
 
 <script>
 /* =====================================================
+   GLOBAL ERROR SAFETY NET
+   Catches anything that slips past the try/catch blocks below (e.g. a
+   typo introduced during a future edit) so the page degrades to a
+   visible message instead of a silent blank screen, and logs enough
+   detail to the console to debug from.
+===================================================== */
+window.addEventListener("error", (e) => {
+  console.error("[mtb-weight-price] Uncaught error:", e.error || e.message);
+  showFatalError();
+});
+window.addEventListener("unhandledrejection", (e) => {
+  console.error("[mtb-weight-price] Unhandled promise rejection:", e.reason);
+});
+
+function showFatalError() {
+  const svgEl = document.getElementById("chart");
+  if (svgEl && !svgEl.dataset.fatalShown) {
+    svgEl.dataset.fatalShown = "1";
+    svgEl.innerHTML = '<foreignObject x="0" y="0" width="960" height="600">' +
+      '<div xmlns="http://www.w3.org/1999/xhtml" class="render-error">' +
+      'Something went wrong rendering the chart. Try switching tabs or reloading the page. ' +
+      'If this keeps happening, open the browser console (F12) for details.</div></foreignObject>';
+  }
+}
+
+/* =====================================================
    CONFIG
 ===================================================== */
 // Fallback rate, used if the FX fetch fails or before it returns.
@@ -312,13 +411,17 @@ let fxSource = "fallback";  // "live" | "cached" | "fallback"
 
 const FX_CACHE_KEY = "pmr_fx_chf";
 const FX_MAX_AGE_DAYS = 5;  // refetch if the cached rate is older than this
+const FX_FETCH_TIMEOUT_MS = 6000; // don't let a hanging request block the page indefinitely
 
 const LBS_PER_KG  = 2.20462;
 
-/* ---- Exchange rate: fetch, cache for a few days, fall back gracefully ----
-   Uses the Frankfurter API (ECB reference rates, free, no key, CORS-enabled).
-   ECB publishes once per working day, so this is never "real time" — which is
-   fine here. Cached in localStorage so repeat visitors don't refetch daily. */
+/**
+ * Load the USD→CHF exchange rate: try a recent localStorage cache first,
+ * then fetch live (ECB rate via Frankfurter), then fall back to a stale
+ * cache, then to the hardcoded constant above. Always ends by calling
+ * updateFxNote() and render() so the UI reflects whatever rate was found.
+ * @returns {Promise<void>}
+ */
 async function loadFxRate() {
   // 1. Try cache first
   try {
@@ -343,11 +446,14 @@ async function loadFxRate() {
     let d = null;
     for (const url of endpoints) {
       try {
-        const res = await fetch(url);
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), FX_FETCH_TIMEOUT_MS);
+        const res = await fetch(url, { signal: controller.signal });
+        clearTimeout(timer);
         if (!res.ok) continue;
         const j = await res.json();
         if (j && j.rates && isFinite(j.rates.CHF)) { d = j; break; }
-      } catch (e) { /* try next endpoint */ }
+      } catch (e) { /* timed out, network error, or bad payload — try next endpoint */ }
     }
     if (!d) throw new Error("FX unreachable");
     const rate = d.rates.CHF;
@@ -383,6 +489,8 @@ function updateFxNote() {
 /* =====================================================
    DATA — price in USD, weight in lbs (base units)
    Approximate launch MSRP + claimed/tested weights.
+   See the validateData() function below for the integrity checks
+   that run against this object at page load.
 ===================================================== */
 const DATA = {
   "XC": [
@@ -399,7 +507,8 @@ const DATA = {
     { name: "Mondraker F-Podium RR SL",           year: 2024, price: 10500, lbs: 22.0, mat: "carbon" },
     { name: "Cervelo ZFS-5 XX AXS",               year: 2024, price: 10500, lbs: 22.5, mat: "carbon" },
     { name: "Specialized Epic World Cup Pro",     year: 2023, price: 9000,  lbs: 22.0, mat: "carbon" },
-    { name: "YT Izzo Uncaged 7",                  year: 2023, price: 6500,  lbs: 24.3, mat: "carbon" }
+    { name: "YT Izzo Uncaged 7",                  year: 2023, price: 6500,  lbs: 24.3, mat: "carbon" },
+    { name: "Specialized Chisel FS Comp",         year: 2025, price: 3400,  lbs: 28.4, mat: "alloy"  }
   ],
   "Trail": [
     { name: "Scott Genius 900 Ultimate",           year: 2023, price: 11999, lbs: 28.4, mat: "carbon" },
@@ -418,7 +527,9 @@ const DATA = {
     { name: "Commencal Meta TR V4 Signature",      year: 2023, price: 5800,  lbs: 33.1, mat: "alloy"  },
     { name: "YT Jeffsy Core 4",                    year: 2023, price: 5499,  lbs: 31.3, mat: "carbon" },
     { name: "Devinci Troy GX AXS (Gen 5)",         year: 2025, price: 5549,  lbs: 34.0, mat: "alloy"  },
-    { name: "Propain Tyee 6.1 AL Trail",           year: 2026, price: 3799,  lbs: 32.9, mat: "alloy"  }
+    { name: "Propain Tyee 6.1 AL Trail",           year: 2026, price: 3799,  lbs: 32.9, mat: "alloy"  },
+    { name: "Trek Top Fuel 8",                     year: 2023, price: 3999,  lbs: 32.8, mat: "alloy"  },
+    { name: "Marin Rift Zone 2",                   year: 2024, price: 2400,  lbs: 33.8, mat: "alloy"  }
   ],
   "Enduro": [
     { name: "Santa Cruz Megatower X0 AXS RSV", year: 2024, price: 11299, lbs: 34.4, mat: "carbon" },
@@ -438,7 +549,9 @@ const DATA = {
     { name: "Scott Ransom 900 RC",             year: 2024, price: 10000, lbs: 33.3, mat: "carbon" },
     { name: "Devinci Spartan HP GX AXS",       year: 2023, price: 7299,  lbs: 35.5, mat: "carbon" },
     { name: "Propain Tyee 6.1 AL Enduro",      year: 2026, price: 3999,  lbs: 34.2, mat: "alloy"  },
-    { name: "Sunn Radical Finest",             year: 2025, price: 6800,  lbs: 36.6, mat: "carbon" }
+    { name: "Sunn Radical Finest",             year: 2025, price: 6800,  lbs: 36.6, mat: "carbon" },
+    { name: "Nukeproof Mega 297 Alloy Pro",    year: 2024, price: 4299,  lbs: 34.1, mat: "alloy"  },
+    { name: "Marin Alpine Trail XR",           year: 2025, price: 5399,  lbs: 38.1, mat: "alloy"  }
   ],
   "DH": [
     { name: "Santa Cruz V10 DH X01",             year: 2023, price: 10300, lbs: 37.5, mat: "carbon" },
@@ -455,7 +568,8 @@ const DATA = {
     { name: "Scott Gambler 900 Tuned",           year: 2022, price: 7700,  lbs: 36.5, mat: "carbon" },
     { name: "Mondraker Summum Carbon RR MX",     year: 2024, price: 9500,  lbs: 37.0, mat: "carbon" },
     { name: "Devinci Chainsaw DH",               year: 2024, price: 6499,  lbs: 39.5, mat: "alloy"  },
-    { name: "Propain Rage CF Highend",           year: 2024, price: 6299,  lbs: 37.3, mat: "carbon" }
+    { name: "Propain Rage CF Highend",           year: 2024, price: 6299,  lbs: 37.3, mat: "carbon" },
+    { name: "Nukeproof Dissent 297",             year: 2023, price: 6499,  lbs: 37.3, mat: "alloy"  }
   ],
   "Full Power": [
     { name: "Specialized S-Works Turbo Levo 4",      year: 2025, price: 14000, lbs: 52.0, mat: "carbon" },
@@ -489,9 +603,97 @@ const DATA = {
     { name: "Canyon Neuron:ONfly CFR LTD",       year: 2024, price: 9000,  lbs: 41.0, mat: "carbon" },
     { name: "Norco Fluid VLT C1",                year: 2024, price: 9500,  lbs: 42.5, mat: "carbon" },
     { name: "Cannondale Moterra SL 1",           year: 2024, price: 9500,  lbs: 44.0, mat: "carbon" },
-    { name: "Devinci E-Troy Lite GX",            year: 2024, price: 7499,  lbs: 46.5, mat: "alloy"  }
+    { name: "Devinci E-Troy Lite GX",            year: 2024, price: 7499,  lbs: 46.5, mat: "alloy"  },
+    { name: "Trek Fuel EXe 8 Alloy GX AXS",      year: 2024, price: 7399,  lbs: 44.3, mat: "alloy"  }
   ]
 };
+
+/* =====================================================
+   DATA VALIDATION
+   Runs once at load. Catches the kind of mistake that's easy to make
+   hand-editing the DATA object above — a missing field, a price typed
+   without noticing an extra zero, a duplicate entry — and surfaces it
+   both in the console and as a small on-page banner, rather than
+   letting a bad entry silently distort the chart and fit line.
+===================================================== */
+const VALIDATION_BOUNDS = {
+  price: { min: 300, max: 60000 },   // USD; catches missing/extra digits
+  lbs:   { min: 8,   max: 90 },      // catches unit mistakes (e.g. entering kg as lbs)
+  year:  { min: 1990, max: new Date().getFullYear() + 2 }
+};
+
+/**
+ * Validate the DATA object's structure and sanity bounds.
+ * @returns {string[]} Human-readable issue descriptions, empty if none found.
+ */
+function validateData() {
+  const issues = [];
+  const REQUIRED_MAT = ["carbon", "alloy"];
+
+  for (const cat of Object.keys(DATA)) {
+    const bikes = DATA[cat];
+    if (!Array.isArray(bikes) || bikes.length === 0) {
+      issues.push(`Category "${cat}" has no bikes.`);
+      continue;
+    }
+    const seenNames = new Set();
+    bikes.forEach((b, i) => {
+      const where = `${cat}[${i}]${b && b.name ? ' "' + b.name + '"' : ""}`;
+
+      if (!b || typeof b !== "object") { issues.push(`${where}: entry is not an object.`); return; }
+      if (!b.name || typeof b.name !== "string" || !b.name.trim()) {
+        issues.push(`${where}: missing or empty "name".`);
+      } else {
+        const key = b.name.trim().toLowerCase();
+        if (seenNames.has(key)) issues.push(`${where}: duplicate bike name within ${cat}.`);
+        seenNames.add(key);
+      }
+      if (!isFinite(b.year) || b.year < VALIDATION_BOUNDS.year.min || b.year > VALIDATION_BOUNDS.year.max) {
+        issues.push(`${where}: year (${b.year}) looks wrong — expected ${VALIDATION_BOUNDS.year.min}–${VALIDATION_BOUNDS.year.max}.`);
+      }
+      if (!isFinite(b.price) || b.price < VALIDATION_BOUNDS.price.min || b.price > VALIDATION_BOUNDS.price.max) {
+        issues.push(`${where}: price (${b.price}) is outside the expected $${VALIDATION_BOUNDS.price.min}–$${VALIDATION_BOUNDS.price.max} range — check for a typo.`);
+      }
+      if (!isFinite(b.lbs) || b.lbs < VALIDATION_BOUNDS.lbs.min || b.lbs > VALIDATION_BOUNDS.lbs.max) {
+        issues.push(`${where}: weight (${b.lbs} lbs) is outside the expected ${VALIDATION_BOUNDS.lbs.min}–${VALIDATION_BOUNDS.lbs.max} lb range — check for a unit mix-up.`);
+      }
+      if (!REQUIRED_MAT.includes(b.mat)) {
+        issues.push(`${where}: "mat" is "${b.mat}" — expected "carbon" or "alloy".`);
+      }
+    });
+  }
+  return issues;
+}
+
+/**
+ * Run validateData() and, if it found anything, log details to the
+ * console and show a dismissible summary banner on the page.
+ */
+function runDataValidation() {
+  let issues = [];
+  try {
+    issues = validateData();
+  } catch (e) {
+    console.error("[mtb-weight-price] validateData() itself threw:", e);
+    return;
+  }
+  if (issues.length === 0) return;
+
+  console.warn(`[mtb-weight-price] Data validation found ${issues.length} issue(s):`);
+  issues.forEach(msg => console.warn("  • " + msg));
+
+  const banner = document.getElementById("dataWarning");
+  if (!banner) return;
+  const div = document.createElement("div");
+  div.className = "data-warning";
+  div.setAttribute("role", "status");
+  div.innerHTML = `<strong>Heads up:</strong> ${issues.length} bike ${issues.length === 1 ? "entry" : "entries"} ` +
+    `in the data look off (open the browser console for details). The chart still works, but double-check ` +
+    `recent edits. <button type="button" id="dismissWarning" style="margin-left:8px;border:1px solid var(--accent);background:transparent;color:var(--accent);border-radius:6px;padding:2px 8px;font-size:.72rem;cursor:pointer;">Dismiss</button>`;
+  banner.appendChild(div);
+  document.getElementById("dismissWarning").onclick = () => div.remove();
+}
+
 
 /* =====================================================
    STATE
@@ -514,7 +716,11 @@ const unitLabel  = () => state.unit;
 const fmtMoney = v => currSymbol() + Math.round(v).toLocaleString("en-US");
 const fmtW = v => v.toFixed(1);
 
-// R^2 readout with a hover explainer
+/**
+ * Build the R² readout with a hover/focus explainer popover.
+ * @param {number} r2 - R-squared value (0–1) from linReg().
+ * @returns {string} HTML string for insertion into an element's innerHTML.
+ */
 function r2Html(r2) {
   return 'R\u00B2 = <b>' + r2.toFixed(2) + '</b>' +
     '<span class="r2-term" tabindex="0">&#9432;' +
@@ -525,7 +731,12 @@ function r2Html(r2) {
     '</span>';
 }
 
-// "In this category on average: carbon adds $X and sheds Y lbs"
+/**
+ * Compute and display the "carbon vs. alloy" average price/weight comparison
+ * for the current category. Suppressed (with an explanatory message) unless
+ * at least 2 bikes of each material are checked "on" — see the README for
+ * why this comparison is directional at best with small, cross-brand samples.
+ */
 function renderMatStats() {
   const el = document.getElementById("matStats");
   el.textContent = "";
@@ -554,6 +765,12 @@ function renderMatStats() {
                  "small samples, different models, not a like-for-like frame swap).";
 }
 
+/**
+ * Ordinary least-squares linear regression.
+ * @param {{x:number,y:number}[]} pts
+ * @returns {{slope:number,intercept:number,r2:number}|null} null if fewer
+ *   than 3 points or the x-values have no spread (vertical/degenerate fit).
+ */
 function linReg(pts) { // pts: [{x,y}] -> {slope, intercept, r2}
   const n = pts.length;
   if (n < 3) return null;
@@ -593,7 +810,23 @@ function niceTicks(min, max, count) {
 
 const matchesMat = b => state.material === "all" || b.mat === state.material;
 
+/**
+ * Redraw the entire widget (chart, fit line, material stats, table) for the
+ * current state. This is the public entry point every event handler calls;
+ * it wraps renderInner() in a try/catch so a bad state combination shows a
+ * visible error instead of leaving a stale or blank chart on screen.
+ */
 function render() {
+  try {
+    renderInner();
+  } catch (err) {
+    console.error("[mtb-weight-price] render() failed:", err);
+    showFatalError();
+  }
+}
+
+/** The actual draw logic. Call render(), not this, from event handlers. */
+function renderInner() {
   const bikes = DATA[state.category].filter(b => !b.off && matchesMat(b));
   svg.innerHTML = "";
   const NS = "http://www.w3.org/2000/svg";
@@ -762,6 +995,12 @@ function render() {
 const ADJ_STEP_LBS = 0.1;    // one click = 0.1 lb (~0.05 kg) weight step
 const ADJ_STEP_USD = 50;     // one click = $50 (or CHF equivalent) price step
 
+/**
+ * Rebuild the bike table for the current category: one row per bike
+ * (including checked-off/filtered-out ones, dimmed), with checkbox,
+ * material, year, price/weight plus their adjustment deltas, and the
+ * +/- adjustment controls. Called from renderInner() on every redraw.
+ */
 function renderTable() {
   const tbody = document.getElementById("tableBody");
   tbody.innerHTML = "";
@@ -782,6 +1021,7 @@ function renderTable() {
     const chk = document.createElement("input");
     chk.type = "checkbox";
     chk.checked = !b.off;
+    chk.setAttribute("aria-label", (b.off ? "Show " : "Hide ") + b.name + " on the chart");
     chk.title = "Show/hide on chart";
     chk.onchange = () => { b.off = !chk.checked; render(); };
     tdChk.appendChild(chk);
@@ -846,6 +1086,7 @@ function renderTable() {
     const pMinus = document.createElement("button");
     pMinus.textContent = "\u2212";
     pMinus.title = "Subtract " + ADJ_STEP_USD + " " + state.currency;
+    pMinus.setAttribute("aria-label", "Decrease price for " + b.name + " by " + ADJ_STEP_USD + " " + state.currency);
     pMinus.onclick = () => {
       const stepBase = state.currency === "CHF" ? ADJ_STEP_USD / CHF_PER_USD : ADJ_STEP_USD;
       b.priceAdj = Math.round(((b.priceAdj || 0) - stepBase));
@@ -854,6 +1095,7 @@ function renderTable() {
     const pPlus = document.createElement("button");
     pPlus.textContent = "+";
     pPlus.title = "Add " + ADJ_STEP_USD + " " + state.currency;
+    pPlus.setAttribute("aria-label", "Increase price for " + b.name + " by " + ADJ_STEP_USD + " " + state.currency);
     pPlus.onclick = () => {
       const stepBase = state.currency === "CHF" ? ADJ_STEP_USD / CHF_PER_USD : ADJ_STEP_USD;
       b.priceAdj = Math.round(((b.priceAdj || 0) + stepBase));
@@ -866,6 +1108,7 @@ function renderTable() {
       const pReset = document.createElement("button");
       pReset.className = "reset";
       pReset.textContent = "Reset";
+      pReset.setAttribute("aria-label", "Reset price for " + b.name + " to default");
       pReset.onclick = () => { delete b.priceAdj; render(); };
       priceRow.appendChild(pReset);
     }
@@ -878,10 +1121,12 @@ function renderTable() {
     const wMinus = document.createElement("button");
     wMinus.textContent = "\u2212";
     wMinus.title = "Subtract " + ADJ_STEP_LBS + " lb";
+    wMinus.setAttribute("aria-label", "Decrease weight for " + b.name + " by " + ADJ_STEP_LBS + " pounds");
     wMinus.onclick = () => { b.adj = +(((b.adj || 0) - ADJ_STEP_LBS).toFixed(2)); render(); };
     const wPlus = document.createElement("button");
     wPlus.textContent = "+";
     wPlus.title = "Add " + ADJ_STEP_LBS + " lb";
+    wPlus.setAttribute("aria-label", "Increase weight for " + b.name + " by " + ADJ_STEP_LBS + " pounds");
     wPlus.onclick = () => { b.adj = +(((b.adj || 0) + ADJ_STEP_LBS).toFixed(2)); render(); };
     weightRow.appendChild(wLabel);
     weightRow.appendChild(wMinus);
@@ -890,6 +1135,7 @@ function renderTable() {
       const wReset = document.createElement("button");
       wReset.className = "reset";
       wReset.textContent = "Reset";
+      wReset.setAttribute("aria-label", "Reset weight for " + b.name + " to default");
       wReset.onclick = () => { delete b.adj; render(); };
       weightRow.appendChild(wReset);
     }
@@ -913,15 +1159,38 @@ tableToggle.onclick = () => {
 /* =====================================================
    UI WIRING
 ===================================================== */
+
+/**
+ * Mark one button "active" within a toggle-group and every sibling
+ * inactive, keeping the visual .active class and the aria-pressed
+ * attribute (for screen readers) in sync in one place.
+ * @param {HTMLElement} container - the toggle-group element
+ * @param {HTMLElement} activeBtn - the button that was just selected
+ */
+function setToggleActive(container, activeBtn) {
+  container.querySelectorAll("button").forEach(x => {
+    const isActive = x === activeBtn;
+    x.classList.toggle("active", isActive);
+    x.setAttribute("aria-pressed", String(isActive));
+    if (isActive) x.classList.remove("shimmer"); // don't shimmer the selected button
+  });
+}
+
 // tabs
 const tabsEl = document.getElementById("tabs");
 for (const cat of Object.keys(DATA)) {
   const b = document.createElement("button");
   b.textContent = cat;
   b.className = cat === state.category ? "active" : "";
+  b.setAttribute("role", "tab");
+  b.setAttribute("aria-selected", cat === state.category ? "true" : "false");
   b.onclick = () => {
     state.category = cat;
-    tabsEl.querySelectorAll("button").forEach(x => x.classList.toggle("active", x === b));
+    tabsEl.querySelectorAll("button").forEach(x => {
+      const isActive = x === b;
+      x.classList.toggle("active", isActive);
+      x.setAttribute("aria-selected", String(isActive));
+    });
     document.getElementById("addTitle").textContent = "Add a bike \u2014 " + cat;
     renderChips(); render();
   };
@@ -930,20 +1199,22 @@ for (const cat of Object.keys(DATA)) {
 document.getElementById("addTitle").textContent = "Add a bike \u2014 " + state.category;
 
 // unit toggle
-document.getElementById("unitToggle").querySelectorAll("button").forEach(b => {
+const unitToggleEl = document.getElementById("unitToggle");
+unitToggleEl.querySelectorAll("button").forEach(b => {
   b.onclick = () => {
     state.unit = b.dataset.unit;
-    document.getElementById("unitToggle").querySelectorAll("button").forEach(x => x.classList.toggle("active", x === b));
+    setToggleActive(unitToggleEl, b);
     document.getElementById("weightLabel").textContent = "Weight (" + state.unit + ")";
     render();
   };
 });
 
 // currency toggle
-document.getElementById("currToggle").querySelectorAll("button").forEach(b => {
+const currToggleEl = document.getElementById("currToggle");
+currToggleEl.querySelectorAll("button").forEach(b => {
   b.onclick = () => {
     state.currency = b.dataset.curr;
-    document.getElementById("currToggle").querySelectorAll("button").forEach(x => x.classList.toggle("active", x === b));
+    setToggleActive(currToggleEl, b);
     document.getElementById("priceLabel").textContent = "Price (" + state.currency + ")";
     render();
   };
@@ -954,27 +1225,46 @@ const fitBtn = document.getElementById("fitBtn");
 fitBtn.onclick = () => {
   state.fit = !state.fit;
   fitBtn.classList.toggle("on", state.fit);
+  fitBtn.setAttribute("aria-pressed", String(state.fit));
   fitBtn.textContent = "Fit line: " + (state.fit ? "ON" : "OFF");
   render();
 };
 
 // material filter
-document.getElementById("matToggle").querySelectorAll("button").forEach(b => {
+const matToggleEl = document.getElementById("matToggle");
+matToggleEl.querySelectorAll("button").forEach(b => {
   b.onclick = () => {
     state.material = b.dataset.mat;
-    document.getElementById("matToggle").querySelectorAll("button").forEach(x => x.classList.toggle("active", x === b));
+    setToggleActive(matToggleEl, b);
     render();
   };
 });
 
 // theme
-document.getElementById("themeToggle").querySelectorAll("button").forEach(b => {
+const themeToggleEl = document.getElementById("themeToggle");
+themeToggleEl.querySelectorAll("button").forEach(b => {
   b.onclick = () => {
     document.documentElement.setAttribute("data-theme", b.dataset.theme);
-    document.getElementById("themeToggle").querySelectorAll("button").forEach(x => x.classList.toggle("active", x === b));
+    setToggleActive(themeToggleEl, b);
     setTimeout(render, 50); // re-read CSS vars after theme swap
   };
 });
+
+/* ---- Periodic shimmer: nudges attention toward an unselected color
+   scheme every 14s. Purely decorative — never touches state.fit or
+   picks the currently-active theme. Respects prefers-reduced-motion
+   via the CSS media query on the .shimmer keyframes themselves. ---- */
+const THEME_SHIMMER_INTERVAL_MS = 14000;
+const THEME_SHIMMER_DURATION_MS = 1700; // matches the CSS animation length + a small buffer
+
+function shimmerRandomThemeButton() {
+  const candidates = Array.from(themeToggleEl.querySelectorAll("button:not(.active)"));
+  if (candidates.length === 0) return;
+  const pick = candidates[Math.floor(Math.random() * candidates.length)];
+  pick.classList.add("shimmer");
+  setTimeout(() => pick.classList.remove("shimmer"), THEME_SHIMMER_DURATION_MS);
+}
+setInterval(shimmerRandomThemeButton, THEME_SHIMMER_INTERVAL_MS);
 
 // add bike
 document.getElementById("addBtn").onclick = () => {
@@ -984,13 +1274,39 @@ document.getElementById("addBtn").onclick = () => {
   let weight = parseFloat(document.getElementById("inWeight").value);
   const msg = document.getElementById("addMsg");
 
-  if (!name || !isFinite(price) || !isFinite(weight) || price <= 0 || weight <= 0) {
-    msg.textContent = "Enter a model name plus a positive price and weight.";
+  if (!name) {
+    msg.textContent = "Enter a bike model name.";
+    return;
+  }
+  if (name.length > 80) {
+    msg.textContent = "Model name is too long (80 characters max) — it won't fit well on the chart.";
+    return;
+  }
+  if (!isFinite(price) || price <= 0) {
+    msg.textContent = "Enter a positive price.";
+    return;
+  }
+  if (!isFinite(weight) || weight <= 0) {
+    msg.textContent = "Enter a positive weight.";
     return;
   }
   // convert entered values (in current display units) back to base USD / lbs
+  // *before* range-checking, since VALIDATION_BOUNDS is expressed in base units
   if (state.currency === "CHF") price = price / CHF_PER_USD;
   if (state.unit === "kg") weight = weight * LBS_PER_KG;
+
+  if (price < VALIDATION_BOUNDS.price.min || price > VALIDATION_BOUNDS.price.max) {
+    msg.textContent = `That price looks off for a flagship bike (expected roughly $${VALIDATION_BOUNDS.price.min.toLocaleString()}–$${VALIDATION_BOUNDS.price.max.toLocaleString()}). Double-check it, or add it anyway by adjusting slightly.`;
+    return;
+  }
+  if (weight < VALIDATION_BOUNDS.lbs.min || weight > VALIDATION_BOUNDS.lbs.max) {
+    msg.textContent = `That weight looks off (expected roughly ${VALIDATION_BOUNDS.lbs.min}–${VALIDATION_BOUNDS.lbs.max} lb). Check you're not mixing up lbs and kg.`;
+    return;
+  }
+  if (isFinite(year) && (year < VALIDATION_BOUNDS.year.min || year > VALIDATION_BOUNDS.year.max)) {
+    msg.textContent = `Model year should be between ${VALIDATION_BOUNDS.year.min} and ${VALIDATION_BOUNDS.year.max}.`;
+    return;
+  }
 
   const mat = document.getElementById("inMat").value;
   DATA[state.category].push({ name, year: isFinite(year) ? year : new Date().getFullYear(), price, lbs: weight, mat, user: true });
@@ -1002,6 +1318,7 @@ document.getElementById("addBtn").onclick = () => {
   renderChips(); render();
 };
 
+/** Rebuild the removable chips listing this session's user-added bikes. */
 function renderChips() {
   const wrap = document.getElementById("userChips");
   wrap.innerHTML = "";
@@ -1012,12 +1329,14 @@ function renderChips() {
     const x = document.createElement("button");
     x.textContent = "\u00D7";
     x.title = "Remove";
+    x.setAttribute("aria-label", "Remove " + b.name + " from the chart");
     x.onclick = () => { DATA[state.category].splice(i, 1); renderChips(); render(); };
     chip.appendChild(x);
     wrap.appendChild(chip);
   });
 }
 
+runDataValidation();
 updateFxNote();
 render();
 loadFxRate();   // async: re-renders with the live/cached rate once resolved
