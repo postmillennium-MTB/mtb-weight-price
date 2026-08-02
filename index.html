@@ -8,10 +8,12 @@
 
   To add or edit bikes: find the DATA object below (search "DATA = {") and
   edit the array for the relevant category. Each entry needs name, year,
-  price (USD), lbs, and mat ("carbon" or "alloy"). A validation pass runs
-  at load time and will warn in the browser console (F12 → Console) if an
-  entry looks malformed — check there first if the chart looks wrong after
-  an edit.
+  price (USD), lbs, and mat (a key from the MATERIALS config, just above
+  DATA — currently "carbon" or "alloy"). A validation pass runs at load
+  time and will warn in the browser console (F12 → Console) if an entry
+  looks malformed — check there first if the chart looks wrong after an
+  edit. To add a new material (titanium, steel, ...), see the comment on
+  the MATERIALS config itself.
 
   Last structural update: material filter, live CHF rate, accessibility
   and error-handling pass.
@@ -288,8 +290,8 @@
     </div>
     <div class="toggle-group" id="matToggle" role="group" aria-label="Frame material filter">
       <button data-mat="all" class="active" aria-pressed="true">Both</button>
-      <button data-mat="carbon" aria-pressed="false">Carbon</button>
-      <button data-mat="alloy" aria-pressed="false">Alloy</button>
+      <!-- Material-specific buttons (Carbon, Alloy, ...) are generated from
+           the MATERIALS config in the script below, not hardcoded here. -->
     </div>
     <button class="fit-btn on" id="fitBtn" aria-pressed="true">Fit line: ON</button>
     <div class="toggle-group theme-toggle" id="themeToggle" role="group" aria-label="Color scheme">
@@ -345,8 +347,7 @@
       <div class="field" style="width:100px;">
         <label for="inMat">Frame</label>
         <select id="inMat">
-          <option value="carbon">Carbon</option>
-          <option value="alloy">Alloy</option>
+          <!-- Options generated from the MATERIALS config in the script below. -->
         </select>
       </div>
       <div class="field" style="width:90px;">
@@ -487,6 +488,24 @@ function updateFxNote() {
 }
 
 /* =====================================================
+   MATERIALS
+   Single source of truth for frame material types. Everything that
+   used to hardcode the strings "carbon"/"alloy" — the filter buttons,
+   the add-bike form's dropdown, the table's material column, and the
+   data validator — now reads from this object instead. To add a third
+   material (e.g. titanium), add a key here and everything downstream
+   picks it up automatically EXCEPT renderMatStats(), which does a
+   two-bucket "carbon vs. alloy" average comparison by design — that
+   function's comparison logic itself needs a redesign for 3+ materials,
+   not just new config (see the comment inside it).
+===================================================== */
+const MATERIALS = {
+  carbon: { label: "Carbon" },
+  alloy:  { label: "Alloy"  }
+  // titanium: { label: "Titanium" },  // ← this line is most of the work to add one
+};
+
+/* =====================================================
    DATA — price in USD, weight in lbs (base units)
    Approximate launch MSRP + claimed/tested weights.
    See the validateData() function below for the integrity checks
@@ -609,6 +628,62 @@ const DATA = {
 };
 
 /* =====================================================
+   SESSION-ONLY BIKE STATE
+   DATA above is a pure, never-mutated catalog. Everything that's
+   per-session — bikes the visitor adds via the form, and per-bike
+   checkbox/weight/price nudges — lives here instead, so the catalog
+   objects never get extra fields bolted onto them at runtime. Nothing
+   in this section persists past a page refresh, matching the existing
+   behavior; it's just no longer stored *inside* the catalog data.
+===================================================== */
+
+// One array per category (mirrors DATA's keys) for bikes added via the
+// "Add a bike" form this session. Membership in this list IS what makes
+// a bike "user-added" — no separate flag needed on the bike object.
+const userBikes = {};
+for (const cat of Object.keys(DATA)) userBikes[cat] = [];
+
+// Per-bike session state (off/adj/priceAdj), keyed by object identity.
+// A WeakMap means this never needs cleanup: if a user-added bike is
+// later removed from userBikes, its session entry becomes unreachable
+// and is garbage-collected along with it.
+const bikeSession = new WeakMap();
+
+/**
+ * Get (creating with defaults if needed) a bike's session-only state.
+ * @param {object} bike - a bike object, from DATA or userBikes
+ * @returns {{off: boolean, adj: number, priceAdj: number}}
+ */
+function getBikeSession(bike) {
+  let s = bikeSession.get(bike);
+  if (!s) {
+    s = { off: false, adj: 0, priceAdj: 0 };
+    bikeSession.set(bike, s);
+  }
+  return s;
+}
+
+/**
+ * All bikes to consider for a category: the static catalog plus
+ * anything added this session. Callers still apply the material
+ * filter and the per-bike "off" checkbox on top of this.
+ * @param {string} category
+ * @returns {object[]}
+ */
+function allBikesIn(category) {
+  return DATA[category].concat(userBikes[category]);
+}
+
+/**
+ * Whether a bike was added by the user this session (vs. part of the
+ * static catalog) — drives the chart's user-point color and the
+ * table's "(yours)" tag.
+ */
+function isUserBike(category, bike) {
+  return userBikes[category].includes(bike);
+}
+
+/* =====================================================
    DATA VALIDATION
    Runs once at load. Catches the kind of mistake that's easy to make
    hand-editing the DATA object above — a missing field, a price typed
@@ -628,7 +703,7 @@ const VALIDATION_BOUNDS = {
  */
 function validateData() {
   const issues = [];
-  const REQUIRED_MAT = ["carbon", "alloy"];
+  const REQUIRED_MAT = Object.keys(MATERIALS); // was: hardcoded ["carbon", "alloy"]
 
   for (const cat of Object.keys(DATA)) {
     const bikes = DATA[cat];
@@ -658,7 +733,7 @@ function validateData() {
         issues.push(`${where}: weight (${b.lbs} lbs) is outside the expected ${VALIDATION_BOUNDS.lbs.min}–${VALIDATION_BOUNDS.lbs.max} lb range — check for a unit mix-up.`);
       }
       if (!REQUIRED_MAT.includes(b.mat)) {
-        issues.push(`${where}: "mat" is "${b.mat}" — expected "carbon" or "alloy".`);
+        issues.push(`${where}: "mat" is "${b.mat}" — expected one of: ${REQUIRED_MAT.join(", ")}.`);
       }
     });
   }
@@ -702,7 +777,7 @@ let state = {
   category: "XC",
   unit: "lbs",       // "lbs" | "kg"
   currency: "USD",   // "USD" | "CHF"
-  material: "all",   // "all" | "carbon" | "alloy"
+  material: "all",   // "all" | a key from MATERIALS (see MATERIALS config above DATA)
   fit: true
 };
 
@@ -736,32 +811,46 @@ function r2Html(r2) {
  * for the current category. Suppressed (with an explanatory message) unless
  * at least 2 bikes of each material are checked "on" — see the README for
  * why this comparison is directional at best with small, cross-brand samples.
+ *
+ * NOTE ON EXTENSIBILITY: this function reads its two material keys from
+ * MATERIALS instead of hardcoding "carbon"/"alloy", but the comparison
+ * itself — "material A adds $X and sheds Y lbs vs. material B" — is
+ * inherently a two-bucket comparison. If a third material is ever added
+ * to MATERIALS, this function will silently keep comparing only the
+ * first two keys it finds; it needs a real redesign (e.g. an N-way table
+ * instead of a single "A vs. B" sentence), not just a data-plumbing fix.
  */
 function renderMatStats() {
   const el = document.getElementById("matStats");
   el.textContent = "";
+  const matKeys = Object.keys(MATERIALS);
+  if (matKeys.length !== 2) {
+    el.textContent = "Carbon vs. alloy comparison is unavailable — this view only supports exactly two materials.";
+    return;
+  }
+  const [matA, matB] = matKeys;
   // Compare across the full category (ignoring the material filter), but respect
   // checkboxes and any user weight/price adjustments.
-  const live = DATA[state.category].filter(b => !b.off);
-  const carb = live.filter(b => b.mat === "carbon");
-  const allo = live.filter(b => b.mat === "alloy");
+  const live = allBikesIn(state.category).filter(b => !getBikeSession(b).off);
+  const carb = live.filter(b => b.mat === matA);
+  const allo = live.filter(b => b.mat === matB);
   if (carb.length < 2 || allo.length < 2) {
-    el.innerHTML = "Carbon vs. alloy: not enough alloy bikes in this category yet for a " +
-                   "meaningful average (" + carb.length + " carbon, " + allo.length + " alloy).";
+    el.innerHTML = `${MATERIALS[matA].label} vs. ${MATERIALS[matB].label}: not enough ${MATERIALS[matB].label.toLowerCase()} bikes in this category yet for a ` +
+                   "meaningful average (" + carb.length + " " + MATERIALS[matA].label.toLowerCase() + ", " + allo.length + " " + MATERIALS[matB].label.toLowerCase() + ").";
     return;
   }
   const avg = (arr, f) => arr.reduce((s, b) => s + f(b), 0) / arr.length;
-  const priceOf  = b => toDisplayPrice(b.price + (b.priceAdj || 0));
-  const weightOf = b => toDisplayWeight(b.lbs + (b.adj || 0));
+  const priceOf  = b => toDisplayPrice(b.price + (getBikeSession(b).priceAdj || 0));
+  const weightOf = b => toDisplayWeight(b.lbs + (getBikeSession(b).adj || 0));
 
-  const dPrice = avg(carb, priceOf) - avg(allo, priceOf);
-  const dWeight = avg(allo, weightOf) - avg(carb, weightOf); // positive = carbon lighter
+  const dPrice = avg(carb, priceOf) - avg(allo, priceOf);   // positive = matA (e.g. carbon) costs more
+  const dWeight = avg(allo, weightOf) - avg(carb, weightOf); // positive = matA (e.g. carbon) is lighter
 
   const priceTxt = (dPrice >= 0 ? "adds " : "saves ") + "<b>" + fmtMoney(Math.abs(dPrice)) + "</b>";
   const weightTxt = (dWeight >= 0 ? "sheds " : "adds ") + "<b>" + Math.abs(dWeight).toFixed(1) +
                     " " + unitLabel() + "</b>";
-  el.innerHTML = "In this category on average: carbon " + priceTxt + " and " + weightTxt +
-                 " vs. alloy &nbsp;(" + carb.length + " carbon, " + allo.length + " alloy \u2014 " +
+  el.innerHTML = `In this category on average: ${MATERIALS[matA].label} ` + priceTxt + " and " + weightTxt +
+                 ` vs. ${MATERIALS[matB].label} &nbsp;(` + carb.length + " " + MATERIALS[matA].label.toLowerCase() + ", " + allo.length + " " + MATERIALS[matB].label.toLowerCase() + " \u2014 " +
                  "small samples, different models, not a like-for-like frame swap).";
 }
 
@@ -827,7 +916,7 @@ function render() {
 
 /** The actual draw logic. Call render(), not this, from event handlers. */
 function renderInner() {
-  const bikes = DATA[state.category].filter(b => !b.off && matchesMat(b));
+  const bikes = allBikesIn(state.category).filter(b => !getBikeSession(b).off && matchesMat(b));
   svg.innerHTML = "";
   const NS = "http://www.w3.org/2000/svg";
   const el = (tag, attrs) => {
@@ -836,12 +925,21 @@ function renderInner() {
     return e;
   };
 
-  // display-space values
-  const pts = bikes.map(b => ({
-    ...b,
-    x: toDisplayPrice(b.price + (b.priceAdj || 0)),
-    y: toDisplayWeight(b.lbs + (b.adj || 0))
-  }));
+  // display-space values. Each point carries its own session snapshot
+  // (adj/priceAdj/user) so the rest of renderInner can keep reading
+  // p.adj / p.priceAdj / p.user without caring that they now live in
+  // getBikeSession() rather than on the bike object itself.
+  const pts = bikes.map(b => {
+    const sess = getBikeSession(b);
+    return {
+      ...b,
+      adj: sess.adj,
+      priceAdj: sess.priceAdj,
+      user: isUserBike(state.category, b),
+      x: toDisplayPrice(b.price + (sess.priceAdj || 0)),
+      y: toDisplayWeight(b.lbs + (sess.adj || 0))
+    };
+  });
 
   // Nothing to plot (e.g. an alloy filter with no alloy bikes in this category)
   if (pts.length === 0) {
@@ -996,6 +1094,61 @@ const ADJ_STEP_LBS = 0.1;    // one click = 0.1 lb (~0.05 kg) weight step
 const ADJ_STEP_USD = 50;     // one click = $50 (or CHF equivalent) price step
 
 /**
+ * Build one row of −/+/Reset adjustment controls for the per-bike table.
+ * Used for both the price row and the weight row in renderTable() below
+ * — previously two ~35-line near-duplicated blocks, now one function
+ * called twice with different get/set/step arguments.
+ *
+ * @param {object} opts
+ * @param {string} opts.label - short row label at the left ("price"/"wt")
+ * @param {() => number} opts.getVal - current adjustment value (0 if unset)
+ * @param {(v: number) => void} opts.setVal - apply a new value; the caller
+ *   owns rounding (price rounds to whole units, weight to 2 decimals)
+ * @param {number} opts.step - amount one click changes the value by
+ * @param {string} opts.stepDescription - human-readable step for titles/aria,
+ *   e.g. "50 USD" or "0.1 lb"
+ * @param {string} opts.subjectName - bike name, for aria-labels
+ * @param {string} opts.fieldName - "price" or "weight", for aria-labels
+ * @returns {HTMLElement}
+ */
+function makeStepperRow(opts) {
+  const { label, getVal, setVal, step, stepDescription, subjectName, fieldName } = opts;
+
+  const row = document.createElement("div");
+  row.className = "adj-controls";
+
+  const lbl = document.createElement("span");
+  lbl.className = "grp-label";
+  lbl.textContent = label;
+  row.appendChild(lbl);
+
+  const minus = document.createElement("button");
+  minus.textContent = "\u2212";
+  minus.title = "Subtract " + stepDescription;
+  minus.setAttribute("aria-label", `Decrease ${fieldName} for ${subjectName} by ${stepDescription}`);
+  minus.onclick = () => { setVal(getVal() - step); render(); };
+  row.appendChild(minus);
+
+  const plus = document.createElement("button");
+  plus.textContent = "+";
+  plus.title = "Add " + stepDescription;
+  plus.setAttribute("aria-label", `Increase ${fieldName} for ${subjectName} by ${stepDescription}`);
+  plus.onclick = () => { setVal(getVal() + step); render(); };
+  row.appendChild(plus);
+
+  if (getVal()) {
+    const reset = document.createElement("button");
+    reset.className = "reset";
+    reset.textContent = "Reset";
+    reset.setAttribute("aria-label", `Reset ${fieldName} for ${subjectName} to default`);
+    reset.onclick = () => { setVal(0); render(); };
+    row.appendChild(reset);
+  }
+
+  return row;
+}
+
+/**
  * Rebuild the bike table for the current category: one row per bike
  * (including checked-off/filtered-out ones, dimmed), with checkbox,
  * material, year, price/weight plus their adjustment deltas, and the
@@ -1008,32 +1161,33 @@ function renderTable() {
   document.getElementById("thPrice").textContent = "Price (" + state.currency + ")";
   document.getElementById("thWeight").textContent = "Weight (" + unitLabel() + ")";
   // Count reflects what's actually on the chart: checked AND passing the material filter
-  const shown = DATA[state.category].filter(b => !b.off && matchesMat(b)).length;
+  const shown = allBikesIn(state.category).filter(b => !getBikeSession(b).off && matchesMat(b)).length;
   document.getElementById("thModel").textContent = "Bike model (" + shown + ")";
 
-  const bikes = DATA[state.category].slice().sort((a, b) => b.price - a.price);
+  const bikes = allBikesIn(state.category).sort((a, b) => b.price - a.price);
   for (const b of bikes) {
+    const sess = getBikeSession(b);
     const tr = document.createElement("tr");
-    if (b.off || !matchesMat(b)) tr.className = "bike-off";
+    if (sess.off || !matchesMat(b)) tr.className = "bike-off";
 
     const tdChk = document.createElement("td");
     tdChk.className = "chk";
     const chk = document.createElement("input");
     chk.type = "checkbox";
-    chk.checked = !b.off;
-    chk.setAttribute("aria-label", (b.off ? "Show " : "Hide ") + b.name + " on the chart");
+    chk.checked = !sess.off;
+    chk.setAttribute("aria-label", (sess.off ? "Show " : "Hide ") + b.name + " on the chart");
     chk.title = "Show/hide on chart";
-    chk.onchange = () => { b.off = !chk.checked; render(); };
+    chk.onchange = () => { sess.off = !chk.checked; render(); };
     tdChk.appendChild(chk);
     tr.appendChild(tdChk);
 
     const tdName = document.createElement("td");
-    tdName.textContent = b.name + (b.user ? " (yours)" : "");
+    tdName.textContent = b.name + (isUserBike(state.category, b) ? " (yours)" : "");
     tr.appendChild(tdName);
 
     const tdMat = document.createElement("td");
     tdMat.className = "mat-cell";
-    tdMat.textContent = b.mat === "carbon" ? "Carbon" : b.mat === "alloy" ? "Alloy" : "\u2014";
+    tdMat.textContent = MATERIALS[b.mat]?.label ?? "\u2014";
     tr.appendChild(tdMat);
 
     const tdYear = document.createElement("td");
@@ -1044,13 +1198,13 @@ function renderTable() {
     // --- price + its delta ---
     const tdPrice = document.createElement("td");
     tdPrice.className = "num";
-    tdPrice.textContent = fmtMoney(toDisplayPrice(b.price + (b.priceAdj || 0)));
+    tdPrice.textContent = fmtMoney(toDisplayPrice(b.price + (sess.priceAdj || 0)));
     tr.appendChild(tdPrice);
 
     const tdPD = document.createElement("td");
     tdPD.className = "num delta";
-    if (b.priceAdj) {
-      const pDisp = toDisplayPrice(b.priceAdj);
+    if (sess.priceAdj) {
+      const pDisp = toDisplayPrice(sess.priceAdj);
       tdPD.textContent = (pDisp > 0 ? "+" : "") + currSymbol() + Math.round(pDisp).toLocaleString("en-US");
     } else {
       tdPD.textContent = "\u2014";
@@ -1060,88 +1214,45 @@ function renderTable() {
     // --- weight + its delta ---
     const tdW = document.createElement("td");
     tdW.className = "num";
-    tdW.textContent = fmtW(toDisplayWeight(b.lbs + (b.adj || 0)));
+    tdW.textContent = fmtW(toDisplayWeight(b.lbs + (sess.adj || 0)));
     tr.appendChild(tdW);
 
     const tdD = document.createElement("td");
     tdD.className = "num delta";
-    if (b.adj) {
-      const dVal = state.unit === "kg" ? b.adj / LBS_PER_KG : b.adj;
+    if (sess.adj) {
+      const dVal = state.unit === "kg" ? sess.adj / LBS_PER_KG : sess.adj;
       tdD.textContent = (dVal > 0 ? "+" : "") + dVal.toFixed(2);
     } else {
       tdD.textContent = "\u2014";
     }
     tr.appendChild(tdD);
 
-    // --- controls: price row + weight row ---
+    // --- controls: price row + weight row, built via the shared stepper helper ---
     const tdC = document.createElement("td");
     const cell = document.createElement("div");
     cell.className = "adj-cell";
 
-    const priceRow = document.createElement("div");
-    priceRow.className = "adj-controls";
-    const pLabel = document.createElement("span");
-    pLabel.className = "grp-label";
-    pLabel.textContent = "price";
-    const pMinus = document.createElement("button");
-    pMinus.textContent = "\u2212";
-    pMinus.title = "Subtract " + ADJ_STEP_USD + " " + state.currency;
-    pMinus.setAttribute("aria-label", "Decrease price for " + b.name + " by " + ADJ_STEP_USD + " " + state.currency);
-    pMinus.onclick = () => {
-      const stepBase = state.currency === "CHF" ? ADJ_STEP_USD / CHF_PER_USD : ADJ_STEP_USD;
-      b.priceAdj = Math.round(((b.priceAdj || 0) - stepBase));
-      render();
-    };
-    const pPlus = document.createElement("button");
-    pPlus.textContent = "+";
-    pPlus.title = "Add " + ADJ_STEP_USD + " " + state.currency;
-    pPlus.setAttribute("aria-label", "Increase price for " + b.name + " by " + ADJ_STEP_USD + " " + state.currency);
-    pPlus.onclick = () => {
-      const stepBase = state.currency === "CHF" ? ADJ_STEP_USD / CHF_PER_USD : ADJ_STEP_USD;
-      b.priceAdj = Math.round(((b.priceAdj || 0) + stepBase));
-      render();
-    };
-    priceRow.appendChild(pLabel);
-    priceRow.appendChild(pMinus);
-    priceRow.appendChild(pPlus);
-    if (b.priceAdj) {
-      const pReset = document.createElement("button");
-      pReset.className = "reset";
-      pReset.textContent = "Reset";
-      pReset.setAttribute("aria-label", "Reset price for " + b.name + " to default");
-      pReset.onclick = () => { delete b.priceAdj; render(); };
-      priceRow.appendChild(pReset);
-    }
+    const priceStepBase = state.currency === "CHF" ? ADJ_STEP_USD / CHF_PER_USD : ADJ_STEP_USD;
+    cell.appendChild(makeStepperRow({
+      label: "price",
+      getVal: () => sess.priceAdj || 0,
+      setVal: (v) => { sess.priceAdj = Math.round(v); },
+      step: priceStepBase,
+      stepDescription: ADJ_STEP_USD + " " + state.currency,
+      subjectName: b.name,
+      fieldName: "price"
+    }));
 
-    const weightRow = document.createElement("div");
-    weightRow.className = "adj-controls";
-    const wLabel = document.createElement("span");
-    wLabel.className = "grp-label";
-    wLabel.textContent = "wt";
-    const wMinus = document.createElement("button");
-    wMinus.textContent = "\u2212";
-    wMinus.title = "Subtract " + ADJ_STEP_LBS + " lb";
-    wMinus.setAttribute("aria-label", "Decrease weight for " + b.name + " by " + ADJ_STEP_LBS + " pounds");
-    wMinus.onclick = () => { b.adj = +(((b.adj || 0) - ADJ_STEP_LBS).toFixed(2)); render(); };
-    const wPlus = document.createElement("button");
-    wPlus.textContent = "+";
-    wPlus.title = "Add " + ADJ_STEP_LBS + " lb";
-    wPlus.setAttribute("aria-label", "Increase weight for " + b.name + " by " + ADJ_STEP_LBS + " pounds");
-    wPlus.onclick = () => { b.adj = +(((b.adj || 0) + ADJ_STEP_LBS).toFixed(2)); render(); };
-    weightRow.appendChild(wLabel);
-    weightRow.appendChild(wMinus);
-    weightRow.appendChild(wPlus);
-    if (b.adj) {
-      const wReset = document.createElement("button");
-      wReset.className = "reset";
-      wReset.textContent = "Reset";
-      wReset.setAttribute("aria-label", "Reset weight for " + b.name + " to default");
-      wReset.onclick = () => { delete b.adj; render(); };
-      weightRow.appendChild(wReset);
-    }
+    cell.appendChild(makeStepperRow({
+      label: "wt",
+      getVal: () => sess.adj || 0,
+      setVal: (v) => { sess.adj = +v.toFixed(2); },
+      step: ADJ_STEP_LBS,
+      stepDescription: ADJ_STEP_LBS + " lb",
+      subjectName: b.name,
+      fieldName: "weight"
+    }));
 
-    cell.appendChild(priceRow);
-    cell.appendChild(weightRow);
     tdC.appendChild(cell);
     tr.appendChild(tdC);
 
@@ -1232,6 +1343,15 @@ fitBtn.onclick = () => {
 
 // material filter
 const matToggleEl = document.getElementById("matToggle");
+// Build one button per MATERIALS entry (the "Both" button already exists in
+// the HTML as a fixed sentinel — it isn't a material, so it isn't generated).
+for (const key of Object.keys(MATERIALS)) {
+  const btn = document.createElement("button");
+  btn.dataset.mat = key;
+  btn.setAttribute("aria-pressed", "false");
+  btn.textContent = MATERIALS[key].label;
+  matToggleEl.appendChild(btn);
+}
 matToggleEl.querySelectorAll("button").forEach(b => {
   b.onclick = () => {
     state.material = b.dataset.mat;
@@ -1309,7 +1429,7 @@ document.getElementById("addBtn").onclick = () => {
   }
 
   const mat = document.getElementById("inMat").value;
-  DATA[state.category].push({ name, year: isFinite(year) ? year : new Date().getFullYear(), price, lbs: weight, mat, user: true });
+  userBikes[state.category].push({ name, year: isFinite(year) ? year : new Date().getFullYear(), price, lbs: weight, mat });
   msg.textContent = "";
   document.getElementById("inName").value = "";
   document.getElementById("inYear").value = "";
@@ -1318,19 +1438,30 @@ document.getElementById("addBtn").onclick = () => {
   renderChips(); render();
 };
 
+/** Fill the add-bike form's material dropdown from the MATERIALS config. */
+function populateMaterialSelect() {
+  const sel = document.getElementById("inMat");
+  sel.innerHTML = "";
+  for (const key of Object.keys(MATERIALS)) {
+    const opt = document.createElement("option");
+    opt.value = key;
+    opt.textContent = MATERIALS[key].label;
+    sel.appendChild(opt);
+  }
+}
+
 /** Rebuild the removable chips listing this session's user-added bikes. */
 function renderChips() {
   const wrap = document.getElementById("userChips");
   wrap.innerHTML = "";
-  DATA[state.category].forEach((b, i) => {
-    if (!b.user) return;
+  userBikes[state.category].forEach((b, i) => {
     const chip = document.createElement("span");
     chip.textContent = b.name + " ('" + String(b.year).slice(-2) + ")";
     const x = document.createElement("button");
     x.textContent = "\u00D7";
     x.title = "Remove";
     x.setAttribute("aria-label", "Remove " + b.name + " from the chart");
-    x.onclick = () => { DATA[state.category].splice(i, 1); renderChips(); render(); };
+    x.onclick = () => { userBikes[state.category].splice(i, 1); renderChips(); render(); };
     chip.appendChild(x);
     wrap.appendChild(chip);
   });
@@ -1338,6 +1469,7 @@ function renderChips() {
 
 runDataValidation();
 updateFxNote();
+populateMaterialSelect();
 render();
 loadFxRate();   // async: re-renders with the live/cached rate once resolved
 </script>
