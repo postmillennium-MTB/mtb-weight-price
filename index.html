@@ -22,6 +22,22 @@
   "for (const cat of Object.keys(DATA))" loop in this file still means
   "the six real categories" and nothing had to be audited when it was added.
 
+  TO ADD OR EDIT A THEME: each [data-theme] block in the <style> must define
+  the full token set. Beyond the colors, four of them are easy to miss:
+    --on-accent    text color that sits ON an --accent fill. It is NOT always
+                   --panel: Fort William's neon pink needs dark text, because
+                   a pink light enough to read as neon cannot carry white.
+    --accent-ink   the accent as TYPE. Fort William's fill pink is 3.46:1 on
+                   white and fails AA as text, so type uses a deeper pink.
+                   Where the accent already reads as text, repeat it.
+    --radius-btn / --radius-panel   the theme's geometry. Fort William is
+                   squared-off (4px) and Leogang is fully rounded (999px);
+                   shape is what keeps those two apart in grayscale.
+    --shimmer      mid-stop of the shimmer sweep. Must be visible against
+                   --panel, so it cannot be white in a white-panel theme.
+  Check any new color as text against BOTH --panel and --bg: the subtitle and
+  footer sit on --bg, so passing on --panel alone is not enough.
+
   Last structural update: added the "All six" comparison tab - six fit lines
   on shared axes, a Student-t significance test on each regression slope,
   and an annotated summary table with plain-English readings.
@@ -34,18 +50,37 @@
 <title>Weight vs. Price — MTB Scatterplot | Post Millennium Renaissance</title>
 <style>
   /* ============ THEMES (4) ============ */
+  /* FORT WILLIAM — wet granite and race tape. The paper stays the rain-washed
+     grey the venue is famous for; the chrome is the neon pink of a DH number
+     board. Sharp corners and a hard offset shadow finish the racing read.
+     Steel blue survives as --point, the scatter dot color: --accent is chrome
+     and never lands on a result, so the data keeps its own palette. */
   :root, [data-theme="fortwilliam"] {
     --bg: #eceef0;        /* rain-washed grey */
     --panel: #ffffff;
     --ink: #1d2530;
     --muted: #5c6a7a;
     --grid: #d6dbe1;
-    --accent: #2f6db3;    /* steel blue */
-    --accent-soft: #dbe8f5;
-    --point: #2f6db3;
+    --accent: #ff2d95;    /* neon pink — race tape */
+    /* Dark, not white. A pink light enough to read as neon can't carry white
+       text (#ff2d95 on white is 3.46:1); against --ink it clears at 4.75:1.
+       Any pink dark enough for white text stops being neon and reads magenta. */
+    --on-accent: #16202b;
+    /* Neon pink is a FILL color, not a text color: #ff2d95 as text on --panel
+       is 3.46:1, well under AA. --accent-ink is the same pink taken deep
+       enough to read as small text (5.32:1 on --panel, 4.58:1 on --bg), and
+       everything that paints the accent as type uses it instead. In the other
+       three themes the accent already reads as text, so there it is simply
+       the accent repeated. */
+    --accent-ink: #cc1a6f;
+    --accent-soft: #ffd6ec;
+    --point: #2f6db3;     /* steel blue — a data color, deliberately not the accent */
     --point-user: #c0392b;
     --fit: #c0392b;
     --chip: #e3e8ee;
+    --radius-btn: 4px;    /* crisp, technical */
+    --radius-panel: 7px;
+    --tab-shadow: 0 2px 0 rgba(255, 45, 149, .55);   /* hard racing offset */
 
     /* Category line colors for the "All six" comparison chart (see the
        CATEGORY_COLORS registry in the script). These are Okabe-Ito
@@ -67,7 +102,7 @@
        white it used to be hardcoded to: the sweep now also runs across the
        category tabs, whose background is --panel (pure white here), where a
        white sweep is invisible. */
-    --shimmer: rgba(47, 109, 179, .22);
+    --shimmer: rgba(255, 45, 149, .26);
   }
   [data-theme="valdisole"] {
     --bg: #171d18;        /* black loam */
@@ -95,6 +130,14 @@
     /* Stronger than the light themes': a low-alpha tint lifts less against a
        dark panel than it does against a white one. */
     --shimmer: rgba(127, 176, 105, .30);
+    /* Dark text on the light green accent — same role --panel happened to fill
+       here before --on-accent existed, now stated rather than coincidental. */
+    --on-accent: #171d18;
+    --accent-ink: #7fb069;   /* already 5.86:1 as text on --panel */
+    --radius-btn: 9px;    /* unchanged shape; Fort William and Leogang are the
+                             two themes that carry a deliberate geometry */
+    --radius-panel: 14px;
+    --tab-shadow: 0 1px 3px rgba(0,0,0,.35);
   }
   [data-theme="rampage"] {
     --bg: #f5e9d9;        /* desert sandstone */
@@ -109,20 +152,42 @@
     --fit: #2c6e8a;
     --chip: #ecd9c2;
     --shimmer: rgba(181, 84, 44, .22);
+    --on-accent: #fdf6ec;
+    --accent-ink: #b5542c;   /* already 4.58:1 as text on --panel */
+    --radius-btn: 9px;
+    --radius-panel: 14px;
+    --tab-shadow: 0 1px 3px rgba(0,0,0,.20);
   }
+  /* LEOGANG — glacier melt and alpine meadow. Was a near-white neutral with a
+     cool accent, which made it read as a variant of Fort William rather than
+     its own scheme. The paper now carries a mint tint, the teal is deepened,
+     and the geometry goes the opposite way from Fort William: full pills and
+     soft panels against that theme's squared-off racing corners. Shape does
+     as much of the separating here as hue, so the two stay distinct in a
+     grayscale print too. */
   [data-theme="leogang"] {
-    --bg: #f4f7fa;        /* alpine white */
-    --panel: #ffffff;
-    --ink: #21313d;
-    --muted: #6a7d8c;
-    --grid: #dde6ec;
-    --accent: #0e8f7e;    /* glacier teal */
-    --accent-soft: #d8efeb;
-    --point: #0e8f7e;
+    --bg: #e8f1ec;        /* glacier mint */
+    --panel: #fbfefc;
+    --ink: #16302a;
+    /* Both of these clear AA against the mint --bg as well as --panel; the
+       page background is where .subtitle and the footer sit, so a value that
+       only passes on --panel isn't enough. */
+    --muted: #516f66;
+    --grid: #cfe3d8;
+    /* Deepened from #0e8f7e, which sat at 4.00:1 against white and missed AA
+       for text this size. This clears it at 5.04:1. */
+    --accent: #0a7d6d;    /* deep glacier teal */
+    --on-accent: #ffffff;
+    --accent-ink: #097466;   /* the fill teal, one step deeper so it reads as type */
+    --accent-soft: #c9ece3;
+    --point: #0a7d6d;
     --point-user: #b5542c;
     --fit: #b5542c;
-    --chip: #e4ecf1;
-    --shimmer: rgba(14, 143, 126, .22);
+    --chip: #dbeae2;
+    --shimmer: rgba(10, 125, 109, .22);
+    --radius-btn: 999px;  /* full pills — the opposite pole from Fort William */
+    --radius-panel: 20px;
+    --tab-shadow: 0 2px 6px rgba(10, 125, 109, .30);
   }
 
   * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -148,13 +213,13 @@
 
   header { display: flex; justify-content: space-between; align-items: baseline; flex-wrap: wrap; gap: 8px; margin-bottom: 4px; }
   h1 { font-size: 1.35rem; letter-spacing: -0.02em; }
-  h1 span { color: var(--accent); }
+  h1 span { color: var(--accent-ink); }
   .home-link {
     font-size: .8rem; font-weight: 600; text-decoration: none;
-    color: var(--accent); border: 1px solid var(--accent);
+    color: var(--accent-ink); border: 1px solid var(--accent-ink);
     padding: 5px 12px; border-radius: 999px; white-space: nowrap;
   }
-  .home-link:hover { background: var(--accent); color: var(--panel); }
+  .home-link:hover { background: var(--accent); color: var(--on-accent); }
   .subtitle { font-size: .82rem; color: var(--muted); margin-bottom: 14px; }
 
   /* controls */
@@ -175,15 +240,15 @@
     color: var(--ink);
     font-weight: 700; font-size: .85rem;
     padding: 8px 15px; min-height: 40px;   /* 40px: primary nav, so a full touch target */
-    border-radius: 9px; cursor: pointer;
+    border-radius: var(--radius-btn); cursor: pointer;
     transition: background .15s, border-color .15s, color .15s;
   }
-  .tabs button:hover { border-color: var(--accent); color: var(--accent); }
+  .tabs button:hover { border-color: var(--accent); color: var(--accent-ink); }
   .tabs button.active {
-    background: var(--accent); border-color: var(--accent); color: var(--panel);
-    box-shadow: 0 1px 3px rgba(0,0,0,.20);
+    background: var(--accent); border-color: var(--accent); color: var(--on-accent);
+    box-shadow: var(--tab-shadow);
   }
-  .tabs button.active:hover { color: var(--panel); }
+  .tabs button.active:hover { color: var(--on-accent); }
   .toggle-group { display: flex; gap: 2px; background: var(--chip); padding: 3px; border-radius: 8px; }
   .toggle-group button {
     border: none; background: transparent; color: var(--muted);
@@ -191,10 +256,10 @@
   }
   .toggle-group button.active { background: var(--panel); color: var(--ink); box-shadow: 0 1px 2px rgba(0,0,0,.15); }
   .fit-btn {
-    border: 1px solid var(--accent); background: transparent; color: var(--accent);
-    font-size: .78rem; font-weight: 700; padding: 6px 12px; border-radius: 8px; cursor: pointer;
+    border: 1px solid var(--accent-ink); background: transparent; color: var(--accent-ink);
+    font-size: .78rem; font-weight: 700; padding: 6px 12px; border-radius: var(--radius-btn); cursor: pointer;
   }
-  .fit-btn.on { background: var(--accent); color: var(--panel); }
+  .fit-btn.on { background: var(--accent); color: var(--on-accent); }
   /* Disabled on the "All six" tab: the fit lines are that view's entire content. */
   .fit-btn:disabled { opacity: .45; cursor: not-allowed; }
   .theme-toggle button { font-size: .72rem; padding: 5px 8px; }
@@ -255,11 +320,11 @@
     font-size: .78rem; color: var(--muted); margin-top: 4px; padding: 0 6px;
     font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
   }
-  .mat-stats b { color: var(--accent); }
+  .mat-stats b { color: var(--accent-ink); }
 
   /* data integrity warning banner (only appears if validateData finds issues) */
   .data-warning {
-    background: var(--accent-soft); border: 1px solid var(--accent); color: var(--ink);
+    background: var(--accent-soft); border: 1px solid var(--accent-ink); color: var(--ink);
     font-size: .78rem; padding: 8px 12px; border-radius: 8px; margin-bottom: 10px;
     line-height: 1.5;
   }
@@ -272,7 +337,7 @@
   }
 
   /* chart panel */
-  .panel { background: var(--panel); border: 1px solid var(--grid); border-radius: 14px; padding: 12px; }
+  .panel { background: var(--panel); border: 1px solid var(--grid); border-radius: var(--radius-panel); padding: 12px; }
   svg { width: 100%; height: auto; display: block; }
   .fit-stats {
     font-size: .78rem; color: var(--muted); margin-top: 6px; padding: 0 6px;
@@ -281,7 +346,7 @@
   .fit-stats b { color: var(--fit); }
 
   /* ---- "All six" comparison view (the 7th tab) ---- */
-  .cmp-panel { margin-top: 14px; background: var(--panel); border: 1px solid var(--grid); border-radius: 14px; padding: 14px; }
+  .cmp-panel { margin-top: 14px; background: var(--panel); border: 1px solid var(--grid); border-radius: var(--radius-panel); padding: 14px; }
   .cmp-panel h2 { font-size: .95rem; margin-bottom: 6px; }
   .cmp-lede { font-size: .78rem; color: var(--muted); line-height: 1.55; margin-bottom: 12px; }
   #cmpTableWrap { overflow-x: auto; }
@@ -319,7 +384,7 @@
   dl.cmp-notes dd { font-size: .76rem; color: var(--muted); line-height: 1.55; margin-top: 2px; }
 
   /* adjustment table */
-  .table-panel { margin-top: 14px; background: var(--panel); border: 1px solid var(--grid); border-radius: 14px; padding: 14px; }
+  .table-panel { margin-top: 14px; background: var(--panel); border: 1px solid var(--grid); border-radius: var(--radius-panel); padding: 14px; }
   .table-head { display: flex; justify-content: space-between; align-items: center; }
   .table-head h2 { font-size: .95rem; }
   .expand-btn {
@@ -350,12 +415,12 @@
     width: 24px; height: 24px; border-radius: 6px; cursor: pointer;
     font-weight: 800; font-size: .85rem; line-height: 1;
   }
-  .adj-controls button:hover { border-color: var(--accent); color: var(--accent); }
+  .adj-controls button:hover { border-color: var(--accent); color: var(--accent-ink); }
   .adj-controls button.reset { width: auto; padding: 0 7px; font-size: .64rem; font-weight: 700; }
   .table-note { font-size: .72rem; color: var(--muted); margin-top: 8px; }
 
   /* add-bike form */
-  .add-panel { margin-top: 14px; background: var(--panel); border: 1px solid var(--grid); border-radius: 14px; padding: 14px; }
+  .add-panel { margin-top: 14px; background: var(--panel); border: 1px solid var(--grid); border-radius: var(--radius-panel); padding: 14px; }
   .add-panel h2 { font-size: .95rem; margin-bottom: 10px; }
   .add-form { display: flex; flex-wrap: wrap; gap: 8px; align-items: flex-end; }
   .field { display: flex; flex-direction: column; gap: 3px; }
@@ -366,8 +431,8 @@
   }
   .field input:focus, .field select:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
   .add-form button {
-    border: none; background: var(--accent); color: var(--panel);
-    font-weight: 700; font-size: .85rem; padding: 9px 18px; border-radius: 8px; cursor: pointer;
+    border: none; background: var(--accent); color: var(--on-accent);
+    font-weight: 700; font-size: .85rem; padding: 9px 18px; border-radius: var(--radius-btn); cursor: pointer;
   }
   .add-msg { font-size: .78rem; color: var(--point-user); margin-top: 6px; min-height: 1em; }
   .user-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
@@ -378,7 +443,7 @@
   .user-chips button { border: none; background: none; color: var(--point-user); font-weight: 800; cursor: pointer; font-size: .85rem; }
 
   footer { margin-top: 14px; font-size: .72rem; color: var(--muted); line-height: 1.5; }
-  footer a { color: var(--accent); }
+  footer a { color: var(--accent-ink); }
 </style>
 </head>
 <body>
@@ -971,7 +1036,7 @@ function runDataValidation() {
   div.setAttribute("role", "status");
   div.innerHTML = `<strong>Heads up:</strong> ${issues.length} bike ${issues.length === 1 ? "entry" : "entries"} ` +
     `in the data look off (open the browser console for details). The chart still works, but double-check ` +
-    `recent edits. <button type="button" id="dismissWarning" style="margin-left:8px;border:1px solid var(--accent);background:transparent;color:var(--accent);border-radius:6px;padding:2px 8px;font-size:.72rem;cursor:pointer;">Dismiss</button>`;
+    `recent edits. <button type="button" id="dismissWarning" style="margin-left:8px;border:1px solid var(--accent-ink);background:transparent;color:var(--accent-ink);border-radius:6px;padding:2px 8px;font-size:.72rem;cursor:pointer;">Dismiss</button>`;
   banner.appendChild(div);
   document.getElementById("dismissWarning").onclick = () => div.remove();
 }
