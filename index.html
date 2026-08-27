@@ -62,6 +62,12 @@
     --cat-dh:        #d55e00;
     --cat-fullpower: #cc79a7;
     --cat-lite:      #56b4e9;
+
+    /* Mid-stop of the shimmer sweep gradient. Accent-tinted rather than the
+       white it used to be hardcoded to: the sweep now also runs across the
+       category tabs, whose background is --panel (pure white here), where a
+       white sweep is invisible. */
+    --shimmer: rgba(47, 109, 179, .22);
   }
   [data-theme="valdisole"] {
     --bg: #171d18;        /* black loam */
@@ -85,6 +91,10 @@
     --cat-dh:        #f07a32;
     --cat-fullpower: #e0a0c6;
     --cat-lite:      #8ed6f5;
+
+    /* Stronger than the light themes': a low-alpha tint lifts less against a
+       dark panel than it does against a white one. */
+    --shimmer: rgba(127, 176, 105, .30);
   }
   [data-theme="rampage"] {
     --bg: #f5e9d9;        /* desert sandstone */
@@ -98,6 +108,7 @@
     --point-user: #2c6e8a;
     --fit: #2c6e8a;
     --chip: #ecd9c2;
+    --shimmer: rgba(181, 84, 44, .22);
   }
   [data-theme="leogang"] {
     --bg: #f4f7fa;        /* alpine white */
@@ -111,6 +122,7 @@
     --point-user: #b5542c;
     --fit: #b5542c;
     --chip: #e4ecf1;
+    --shimmer: rgba(14, 143, 126, .22);
   }
 
   * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -149,12 +161,29 @@
   .controls { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin-bottom: 12px; }
   /* wrap, don't overflow: seven tabs are wider than a phone screen, and an
      un-wrapped strip pushed the whole page into horizontal scroll. */
-  .tabs { display: flex; flex-wrap: wrap; gap: 4px; background: var(--chip); padding: 4px; border-radius: 10px; }
+  /* Category tabs. Each tab carries its own surface and its own border rather
+     than sitting transparent on one shared --chip strip: with seven of them,
+     that strip read as a single long bar with words in it, in every theme.
+     Two cues do the separating and both survive a grayscale print — each tab
+     is --panel against the page's --bg, and each has a --grid border. The
+     selected tab then inverts to an accent fill, which is a third cue that is
+     also not carried by hue alone. */
+  .tabs { display: flex; flex-wrap: wrap; gap: 6px; }
   .tabs button {
-    border: none; background: transparent; color: var(--muted);
-    font-weight: 700; font-size: .85rem; padding: 6px 14px; border-radius: 7px; cursor: pointer;
+    background: var(--panel);
+    border: 1px solid var(--grid);
+    color: var(--ink);
+    font-weight: 700; font-size: .85rem;
+    padding: 8px 15px; min-height: 40px;   /* 40px: primary nav, so a full touch target */
+    border-radius: 9px; cursor: pointer;
+    transition: background .15s, border-color .15s, color .15s;
   }
-  .tabs button.active { background: var(--accent); color: var(--panel); }
+  .tabs button:hover { border-color: var(--accent); color: var(--accent); }
+  .tabs button.active {
+    background: var(--accent); border-color: var(--accent); color: var(--panel);
+    box-shadow: 0 1px 3px rgba(0,0,0,.20);
+  }
+  .tabs button.active:hover { color: var(--panel); }
   .toggle-group { display: flex; gap: 2px; background: var(--chip); padding: 3px; border-radius: 8px; }
   .toggle-group button {
     border: none; background: transparent; color: var(--muted);
@@ -170,32 +199,37 @@
   .fit-btn:disabled { opacity: .45; cursor: not-allowed; }
   .theme-toggle button { font-size: .72rem; padding: 5px 8px; }
 
-  /* Periodic shimmer highlight on a random, non-selected theme button --
-     purely decorative, invites people to notice the other color schemes. */
-  @keyframes theme-shimmer-ring {
+  /* Periodic shimmer highlight on a random, non-selected button -- purely
+     decorative, it nudges attention toward an option the visitor hasn't tried.
+     Driven by the SHIMMER_GROUPS registry in the script; the rules below are
+     deliberately NOT scoped to .theme-toggle any more, so adding a group there
+     needs no new CSS. Was theme-shimmer-* when only the theme swatches used it.
+     The 1.6s here is mirrored by SHIMMER_DURATION_MS in the script -- change
+     one and change the other, or the class outlives its animation. */
+  @keyframes shimmer-ring {
     0%   { box-shadow: 0 0 0 0 var(--accent-soft); }
     50%  { box-shadow: 0 0 0 5px var(--accent-soft); }
     100% { box-shadow: 0 0 0 0 rgba(0,0,0,0); }
   }
-  @keyframes theme-shimmer-sweep {
+  @keyframes shimmer-sweep {
     0%   { left: -60%; }
     100% { left: 130%; }
   }
-  .theme-toggle button.shimmer {
+  button.shimmer {
     position: relative;
     overflow: hidden;
-    animation: theme-shimmer-ring 1.6s ease-in-out;
+    animation: shimmer-ring 1.6s ease-in-out;
   }
-  .theme-toggle button.shimmer::after {
+  button.shimmer::after {
     content: "";
     position: absolute; top: 0; left: -60%; width: 45%; height: 100%;
-    background: linear-gradient(120deg, transparent, rgba(255,255,255,.65), transparent);
-    animation: theme-shimmer-sweep 1.6s ease-in-out;
+    background: linear-gradient(120deg, transparent, var(--shimmer), transparent);
+    animation: shimmer-sweep 1.6s ease-in-out;
     pointer-events: none;
   }
   @media (prefers-reduced-motion: reduce) {
-    .theme-toggle button.shimmer,
-    .theme-toggle button.shimmer::after { animation: none; }
+    button.shimmer,
+    button.shimmer::after { animation: none; }
   }
 
   /* R^2 explainer tooltip */
@@ -2097,6 +2131,7 @@ for (const cat of Object.keys(DATA).concat([COMPARE_ID])) {
       const isActive = x === b;
       x.classList.toggle("active", isActive);
       x.setAttribute("aria-selected", String(isActive));
+      if (isActive) x.classList.remove("shimmer"); // don't shimmer the selected tab
     });
     // The add-bike form is hidden on the comparison tab; leave its heading
     // pointing at the last real category so it reads correctly on return.
@@ -2168,21 +2203,60 @@ themeToggleEl.querySelectorAll("button").forEach(b => {
   };
 });
 
-/* ---- Periodic shimmer: nudges attention toward an unselected color
-   scheme every 14s. Purely decorative — never touches state.fit or
-   picks the currently-active theme. Respects prefers-reduced-motion
-   via the CSS media query on the .shimmer keyframes themselves. ---- */
-const THEME_SHIMMER_INTERVAL_MS = 14000;
-const THEME_SHIMMER_DURATION_MS = 1700; // matches the CSS animation length + a small buffer
+/* ==== SHIMMER GROUPS REGISTRY - every button group that periodically
+   nudges attention toward an option the visitor hasn't picked.
+   TO ADD A GROUP: add ONE line here. The timer, the random pick, the
+   class and its cleanup all derive from this array, and the CSS is not
+   scoped to any one group, so there is nothing else to edit.
 
-function shimmerRandomThemeButton() {
-  const candidates = Array.from(themeToggleEl.querySelectorAll("button:not(.active)"));
+     id        element id of the container holding the buttons
+     everyMs   how often to shimmer one of its unselected buttons
+     offsetMs  delay before that group's first shimmer
+
+   WHY offsetMs EXISTS: 14000 is exactly twice 7000, so two bare
+   setIntervals would fire together on every second tab shimmer and the
+   theme shimmer would be permanently starved by the overlap guard below.
+   Staggering the starts keeps them a steady 3.5s apart forever.
+
+   Purely decorative throughout: this never changes state, never picks the
+   active button, and the CSS disables the animation outright under
+   prefers-reduced-motion.
+   ============================================================================ */
+const SHIMMER_GROUPS = [
+  { id: "tabs",        everyMs: 7000,  offsetMs: 1500 },
+  { id: "themeToggle", everyMs: 14000, offsetMs: 5000 }
+];
+const SHIMMER_DURATION_MS = 1700;  // must stay >= the CSS shimmer animation length (1.6s)
+
+// Only ever one shimmer on screen at a time. offsetMs above is what keeps the
+// groups from contending in the first place; this is the backstop for when a
+// background tab throttles the timers and they drift back into each other.
+let shimmerInFlight = false;
+
+/**
+ * Shimmer one random unselected button inside a container.
+ * @param {HTMLElement|null} container
+ */
+function shimmerRandomButton(container) {
+  if (!container || shimmerInFlight) return;
+  const candidates = Array.from(container.querySelectorAll("button:not(.active)"));
   if (candidates.length === 0) return;
   const pick = candidates[Math.floor(Math.random() * candidates.length)];
+  shimmerInFlight = true;
   pick.classList.add("shimmer");
-  setTimeout(() => pick.classList.remove("shimmer"), THEME_SHIMMER_DURATION_MS);
+  setTimeout(() => {
+    pick.classList.remove("shimmer");
+    shimmerInFlight = false;
+  }, SHIMMER_DURATION_MS);
 }
-setInterval(shimmerRandomThemeButton, THEME_SHIMMER_INTERVAL_MS);
+
+for (const group of SHIMMER_GROUPS) {
+  const container = document.getElementById(group.id);
+  setTimeout(() => {
+    shimmerRandomButton(container);
+    setInterval(() => shimmerRandomButton(container), group.everyMs);
+  }, group.offsetMs);
+}
 
 // add bike
 document.getElementById("addBtn").onclick = () => {
