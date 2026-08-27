@@ -2,6 +2,8 @@
 
 A single-file, dependency-free HTML/JS/CSS widget for Post Millennium Renaissance. Plots mountain bikes by price and weight across six categories (XC, Trail, Enduro, DH, Full Power eMTB, Lite eMTB), with an optional fit line, unit/currency toggles, a per-bike weight & price adjustment table, show/hide checkboxes, and a form to add your own bikes.
 
+A seventh tab, **All six**, is a cross-category view: it puts every category's fit line on one pair of axes, labels each with whether its slope is statistically significant, and backs that up with a summary table (bikes, cost per lb shed, R², p-value, verdict, plain-English reading) and a "how to read this chart" section.
+
 ## How the data was built
 
 All seeded bikes were researched via web search against manufacturer sites, Pinkbike, Vital MTB, and magazine reviews (MBR, MBA, EMTB Forums, BikeRadar, etc.) in July 2026. Nothing here is pulled from a live pricing API — it's a hand-assembled snapshot.
@@ -17,6 +19,19 @@ All seeded bikes were researched via web search against manufacturer sites, Pink
 - **The fit line is a simple linear regression** (least squares) on whatever bikes are currently checked "on." With only 13–20 points per category, it's sensitive to outliers — check the R² readout under the chart before treating the slope as meaningful, especially in categories with a wide price spread but few bikes at the extremes.
 - **User-added bikes, weight/price adjustments, and checkbox states are session-only.** Nothing persists after a page refresh. If someone shares a link to the page, they get the default dataset, not your edits. (The FX rate is the one exception — it is cached.)
 
+### The "All six" comparison tab and its significance test
+
+The seventh tab draws all six fit lines together and labels each one significant or not. What that label does and doesn't mean:
+
+- **The test is a two-tailed Student-t test on the regression slope** (null hypothesis: slope = 0), with n−2 degrees of freedom. It's computed in-file — `logGamma()`, `betaContinuedFraction()`, `incompleteBeta()` and `tTestPValue()` in the script, since the widget ships with no dependencies. The implementation was checked against published t-table critical values (t=2.228/df=10 → p=0.0500; t=2.086/df=20 → p=0.0500; t=3.169/df=10 → p=0.0100) before shipping. **If anyone rewrites those functions, re-check those numbers** — a subtly wrong p-value looks entirely plausible on screen and would silently mislabel a category.
+- **"Not significant" means "this dataset can't tell," not "no relationship."** With 13–20 bikes per category the test has little power; a real but modest slope can easily fail to clear p < 0.05.
+- **Six tests at once inflate the false-positive rate.** At α = .05 across six categories there's roughly a 26% chance at least one "significant" result is noise. Categories that also clear the Bonferroni-corrected threshold (p < 0.0083) are marked † in the table. That threshold is derived from `Object.keys(DATA).length`, so adding a seventh category re-tightens it automatically.
+- **Significance says nothing about causation.** These are observational, cross-brand, mostly top-spec bikes; expensive builds differ in layup, wheels, drivetrain and suspension all at once. A steep, significant line means price and weight travel together in this snapshot, not that spending more makes a bike lighter.
+- **The cost-per-lb figure is shown in parentheses where the slope isn't significant**, because a near-flat slope produces arithmetically real but meaningless numbers (the alloy-only Trail filter, for example, yields ~$300,000/lb). Where the slope points *upward* — Full Power eMTB, where more money buys more motor and battery — the column reads `n/a` instead.
+- **The lines are clipped to each category's own observed price range.** No line is extrapolated. This is why they start and stop in different places, and it's deliberate: an extrapolated DH line running down to XC money would depict something that isn't in the data.
+- **R² and p-values are invariant to the unit and currency toggles** (rescaling an axis can't create or destroy a relationship); the cost-per-unit figures are not.
+- **The material filter and per-bike checkboxes feed this view too**, so filtering to Alloy leaves several categories with too few bikes to fit a line. The view says so rather than drawing one.
+
 ### Frame material specifically
 
 Every bike carries a `mat` tag (`"carbon"` or `"alloy"`), driving the Carbon/Alloy/Both filter and the "carbon adds $X, sheds Y lbs" readout. Caveats worth knowing before leaning on that number:
@@ -26,6 +41,9 @@ Every bike carries a `mat` tag (`"carbon"` or `"alloy"`), driving the Carbon/All
 - **The comparison is not a like-for-like frame swap.** It averages different bikes from different brands at different spec levels, so it conflates the material with everything else that differs between those bikes. A carbon Megatower and an alloy Meta differ by far more than frame material. Treat the number as a loose directional signal, not a material cost. The honest version of this stat requires same-model carbon/alloy pairs (Ripmo vs. Ripmo AF), which the dataset doesn't yet have.
 
 ## Suggestions for future updates
+
+- **Consider confidence bands on the comparison chart.** The fit lines are drawn as single lines; a shaded ±1 SE band would make the difference between the tight XC/Trail/Lite fits and the loose Enduro/DH/Full Power ones visible without reading the table.
+- **Consider comparing slopes to each other**, not just each slope to zero. "Is the XC slope steeper than the Trail slope?" is a different test (an interaction term) than the six the tab currently runs, and it's the question the chart visually invites.
 
 - **Refresh pricing at least once a season.** MTB MSRPs shift with model-year changes (usually announced July–October) and mid-year price drops are common on 2–3 year old platforms.
 - **Add a "last updated" timestamp** visible on the page itself, so anyone looking at it (including Town Council or nonprofit-partner audiences, if this ever gets reused for advocacy) knows how fresh the data is.

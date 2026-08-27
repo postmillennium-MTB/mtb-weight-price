@@ -15,8 +15,16 @@
   edit. To add a new material (titanium, steel, ...), see the comment on
   the MATERIALS config itself.
 
-  Last structural update: material filter, live CHF rate, accessibility
-  and error-handling pass.
+  TABS: the six category tabs are generated straight from DATA's keys. The
+  seventh, "All six", is a cross-category view (search "COMPARISON VIEW")
+  that draws every category's fit line on one pair of axes with significance
+  labels. It is deliberately NOT a key in DATA, so every
+  "for (const cat of Object.keys(DATA))" loop in this file still means
+  "the six real categories" and nothing had to be audited when it was added.
+
+  Last structural update: added the "All six" comparison tab - six fit lines
+  on shared axes, a Student-t significance test on each regression slope,
+  and an annotated summary table with plain-English readings.
 -->
 <!DOCTYPE html>
 <html lang="en" data-theme="fortwilliam">
@@ -38,6 +46,22 @@
     --point-user: #c0392b;
     --fit: #c0392b;
     --chip: #e3e8ee;
+
+    /* Category line colors for the "All six" comparison chart (see the
+       CATEGORY_COLORS registry in the script). These are Okabe-Ito
+       colorblind-safe hues and they deliberately do NOT follow the theme
+       accent: they carry meaning - which line is which category - and
+       meaning-carrying color stays fixed here. Only the dark theme below
+       overrides them, same hues lightened, purely so they stay legible on
+       a dark panel. The three light themes all inherit these.
+       Color is never the only cue: every line is labeled at its right-hand
+       end and every summary-table row carries the category name. */
+    --cat-xc:        #0072b2;
+    --cat-trail:     #009e73;
+    --cat-enduro:    #e69f00;
+    --cat-dh:        #d55e00;
+    --cat-fullpower: #cc79a7;
+    --cat-lite:      #56b4e9;
   }
   [data-theme="valdisole"] {
     --bg: #171d18;        /* black loam */
@@ -51,6 +75,16 @@
     --point-user: #e8a04c;
     --fit: #e8a04c;
     --chip: #2c3a29;
+
+    /* Same six hues as :root, lightened for the dark panel. XC and Lite eMTB
+       land closest together here; they are ~25 lb apart on the chart and both
+       carry a name label, so the proximity never has to be resolved by eye. */
+    --cat-xc:        #5aa9de;
+    --cat-trail:     #35c79a;
+    --cat-enduro:    #f2b33d;
+    --cat-dh:        #f07a32;
+    --cat-fullpower: #e0a0c6;
+    --cat-lite:      #8ed6f5;
   }
   [data-theme="rampage"] {
     --bg: #f5e9d9;        /* desert sandstone */
@@ -80,6 +114,9 @@
   }
 
   * { box-sizing: border-box; margin: 0; padding: 0; }
+  /* The view panels are swapped with the `hidden` attribute; this keeps that
+     working no matter what display value a future rule gives them. */
+  [hidden] { display: none !important; }
   .sr-only {
     position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
     overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; border: 0;
@@ -110,7 +147,9 @@
 
   /* controls */
   .controls { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin-bottom: 12px; }
-  .tabs { display: flex; gap: 4px; background: var(--chip); padding: 4px; border-radius: 10px; }
+  /* wrap, don't overflow: seven tabs are wider than a phone screen, and an
+     un-wrapped strip pushed the whole page into horizontal scroll. */
+  .tabs { display: flex; flex-wrap: wrap; gap: 4px; background: var(--chip); padding: 4px; border-radius: 10px; }
   .tabs button {
     border: none; background: transparent; color: var(--muted);
     font-weight: 700; font-size: .85rem; padding: 6px 14px; border-radius: 7px; cursor: pointer;
@@ -127,6 +166,8 @@
     font-size: .78rem; font-weight: 700; padding: 6px 12px; border-radius: 8px; cursor: pointer;
   }
   .fit-btn.on { background: var(--accent); color: var(--panel); }
+  /* Disabled on the "All six" tab: the fit lines are that view's entire content. */
+  .fit-btn:disabled { opacity: .45; cursor: not-allowed; }
   .theme-toggle button { font-size: .72rem; padding: 5px 8px; }
 
   /* Periodic shimmer highlight on a random, non-selected theme button --
@@ -204,6 +245,44 @@
     font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
   }
   .fit-stats b { color: var(--fit); }
+
+  /* ---- "All six" comparison view (the 7th tab) ---- */
+  .cmp-panel { margin-top: 14px; background: var(--panel); border: 1px solid var(--grid); border-radius: 14px; padding: 14px; }
+  .cmp-panel h2 { font-size: .95rem; margin-bottom: 6px; }
+  .cmp-lede { font-size: .78rem; color: var(--muted); line-height: 1.55; margin-bottom: 12px; }
+  #cmpTableWrap { overflow-x: auto; }
+  table.cmp { width: 100%; min-width: 780px; border-collapse: collapse; font-size: .82rem; }
+  table.cmp th {
+    text-align: left; font-size: .68rem; text-transform: uppercase; letter-spacing: .05em;
+    color: var(--muted); padding: 6px 8px; border-bottom: 2px solid var(--grid); vertical-align: bottom;
+  }
+  table.cmp td { padding: 8px; border-bottom: 1px solid var(--grid); vertical-align: top; }
+  table.cmp tr:last-child td { border-bottom: none; }
+  table.cmp th.num, table.cmp td.num {
+    text-align: right; font-variant-numeric: tabular-nums;
+    font-family: ui-monospace, Menlo, Consolas, monospace; font-size: .78rem; white-space: nowrap;
+  }
+  /* nowrap on the cell, not just the name: the swatch and the name are two
+     inline boxes, and without this they wrap onto separate lines as soon as
+     the "what that means" column takes the width it wants. */
+  table.cmp td.cmp-cat-cell { white-space: nowrap; }
+  .cmp-cat { font-weight: 700; }
+  /* A short bar in the category's line color: the legend key that lets a row
+     in this table be matched to a line on the chart above it. */
+  .cmp-swatch { display: inline-block; width: 22px; height: 4px; border-radius: 2px; margin-right: 8px; vertical-align: middle; }
+  .cmp-read { font-size: .76rem; color: var(--muted); line-height: 1.5; min-width: 280px; }
+  /* Significance chips: symbol + word, never color alone. */
+  .sig {
+    display: inline-block; font-size: .66rem; font-weight: 800; text-transform: uppercase;
+    letter-spacing: .04em; padding: 3px 8px; border-radius: 999px; white-space: nowrap; border: 1px solid;
+  }
+  .sig-yes { color: var(--ink); border-color: var(--ink); background: var(--chip); }
+  .sig-no  { color: var(--muted); border-color: var(--grid); background: transparent; }
+  .cmp-footnote { font-size: .72rem; color: var(--muted); margin-top: 8px; line-height: 1.5; }
+  .cmp-notes-h { font-size: .82rem; margin: 16px 0 8px; border-top: 1px solid var(--grid); padding-top: 13px; }
+  dl.cmp-notes { display: grid; gap: 10px; }
+  dl.cmp-notes dt { font-size: .76rem; font-weight: 700; }
+  dl.cmp-notes dd { font-size: .76rem; color: var(--muted); line-height: 1.55; margin-top: 2px; }
 
   /* adjustment table */
   .table-panel { margin-top: 14px; background: var(--panel); border: 1px solid var(--grid); border-radius: 14px; padding: 14px; }
@@ -310,7 +389,20 @@
     <div class="mat-stats" id="matStats" aria-live="polite"></div>
   </div>
 
-  <div class="table-panel">
+  <!-- "All six" comparison view. Hidden unless that tab is active. The table,
+       the lede and the notes list are all BUILT BY THE SCRIPT below - from
+       renderCompareSummary(), COMPARE_LEDE and COMPARE_NOTES respectively -
+       so the prose lives with the rest of the content, not in here. -->
+  <div class="cmp-panel" id="cmpPanel" hidden>
+    <h2>All six fit lines &mdash; and what each one is actually worth</h2>
+    <p class="cmp-lede" id="cmpLede"></p>
+    <div id="cmpTableWrap"></div>
+    <div class="cmp-footnote" id="cmpFootnote"></div>
+    <h3 class="cmp-notes-h">How to read this chart</h3>
+    <dl class="cmp-notes" id="cmpNotes"></dl>
+  </div>
+
+  <div class="table-panel" id="tablePanel">
     <div class="table-head">
       <h2 id="tableTitle">Bike table</h2>
       <button class="expand-btn" id="tableToggle">Show table &#9662;</button>
@@ -337,7 +429,7 @@
     </div>
   </div>
 
-  <div class="add-panel">
+  <div class="add-panel" id="addPanel">
     <h2 id="addTitle">Add a bike</h2>
     <div class="add-form">
       <div class="field" style="flex:2; min-width:180px;">
@@ -628,6 +720,87 @@ const DATA = {
 };
 
 /* =====================================================
+   COMPARISON VIEW ("All six") - the 7th tab
+   Not a category: a cross-category view that puts every category's fit
+   line on one pair of axes. Kept as a sentinel id rather than a key in
+   DATA so that every "for (const cat of Object.keys(DATA))" loop in this
+   file keeps meaning "the six real categories" - nothing else had to
+   change to make room for it.
+===================================================== */
+const COMPARE_ID = "All six";
+
+/* Which CSS custom property carries each category's line color. The values
+   are property NAMES, not colors: they get resolved through cssVar() at draw
+   time exactly like every other color in this file, so switching theme
+   repaints the lines.
+
+   TO ADD A CATEGORY: add its array to DATA, add ONE line here, and add ONE
+   matching --cat-* custom property to BOTH theme blocks in the <style> above
+   (the light default and the dark override). Custom properties can't be
+   generated from JS, so that CSS pair is the one part this registry can't
+   cover on its own. Everything else - the tab, the line, the label, the
+   summary row - derives from these two places. */
+const CATEGORY_COLORS = {
+  "XC":         "--cat-xc",
+  "Trail":      "--cat-trail",
+  "Enduro":     "--cat-enduro",
+  "DH":         "--cat-dh",
+  "Full Power": "--cat-fullpower",
+  "Lite eMTB":  "--cat-lite"
+};
+
+/* Standing prose for the comparison view. It lives up here with the rest of
+   the content rather than inside a render function, and the {placeholders}
+   are filled from the live numbers at draw time (see fillNotePlaceholders)
+   so no count or threshold quoted in this copy can drift out of step with
+   the data or with the SIG_* constants below. */
+const COMPARE_LEDE =
+  "Every category's fit line on one pair of axes. Each is the same least-squares fit the red " +
+  "dashed line draws on that category's own tab — recolored here so six can share a chart, and " +
+  "drawn only across the price range that category's bikes actually cover. None of them is " +
+  "extrapolated past its own data, which is why the lines start and stop in different places.";
+
+// Caption drawn inside the comparison chart itself, above the plot area.
+const COMPARE_CHART_CAPTION =
+  "Each dashed line spans only its own category's price range — none is extrapolated.";
+
+const COMPARE_NOTES = [
+  { q: "Which way does a line lean?",
+    a: "Down to the right means the more expensive bikes in that category are the lighter ones. Flat " +
+       "or upward means the money is buying something other than lightness. The steepness is a going " +
+       "rate for a pound inside that category — it says nothing about the gaps between categories." },
+  { q: "What “significant” means here",
+    a: "Each slope is tested against the possibility that price and weight are unrelated (a Student-t " +
+       "test on the regression slope, n − 2 degrees of freedom). “Significant” means p came in below " +
+       "{alpha}: a slope this steep would turn up less than {alphaPct} of the time in a category where " +
+       "price and weight had nothing to do with each other." },
+  { q: "“Not significant” is not the same as “no relationship”",
+    a: "With {nRange} bikes in a category, this test is weak. A real but modest price–weight " +
+       "relationship can easily fail to clear the bar. Read a “not significant” line as “this " +
+       "dataset can't tell,” never as “there is nothing there.”" },
+  { q: "Six tests at once inflate the odds",
+    a: "Running {k} tests at the usual {alpha} threshold gives roughly a {familywise} chance that at " +
+       "least one “significant” result is noise. The conservative correction is to demand p below " +
+       "{alphaB} instead; the categories that clear that stricter bar are marked †." },
+  { q: "The vertical gaps are categories, not purchases",
+    a: "A full-power eMTB line sitting some 20 lb above the XC line is what those categories are — " +
+       "motor, battery, tires, travel — not something a rider can spend their way out of. Nothing here " +
+       "suggests a $12,000 enduro bike could be made to weigh what a $12,000 XC bike weighs." },
+  { q: "This is a snapshot, not an experiment",
+    a: "These are observational, cross-brand, mostly top-spec bikes. Expensive builds differ in frame " +
+       "layup, wheels, drivetrain and suspension all at once, so even a steep, significant line does not " +
+       "show that paying more causes lightness — only that in this dataset the two travel together." },
+  { q: "Small samples, big outliers",
+    a: "{nRange} bikes per category. One unusual bike can visibly swing a slope and move its p-value " +
+       "across the threshold. Open that category's own tab and uncheck it in the table to watch the " +
+       "line move." },
+  { q: "The other controls still feed this chart",
+    a: "Unit, currency, the material filter and the per-bike checkboxes all apply here. R² and the " +
+       "p-values do not change when you switch lbs↔kg or USD↔CHF — rescaling an axis can't create " +
+       "or destroy a relationship — but the cost-per-unit figures do." }
+];
+
+/* =====================================================
    SESSION-ONLY BIKE STATE
    DATA above is a pure, never-mutated catalog. Everything that's
    per-session — bikes the visitor adds via the form, and per-bike
@@ -788,6 +961,9 @@ const toDisplayWeight = lbs => state.unit === "kg" ? lbs / LBS_PER_KG : lbs;
 const toDisplayPrice  = usd => state.currency === "CHF" ? usd * CHF_PER_USD : usd;
 const currSymbol = () => state.currency === "CHF" ? "\u20A3" : "$";
 const unitLabel  = () => state.unit;
+// "lbs" reads wrong in "per lbs" / "shedding 1 lbs". unitLabel() stays the
+// plural form used on axis titles and totals; this is the singular for prose.
+const unitSingular = () => state.unit === "kg" ? "kg" : "lb";
 const fmtMoney = v => currSymbol() + Math.round(v).toLocaleString("en-US");
 const fmtW = v => v.toFixed(1);
 
@@ -854,13 +1030,108 @@ function renderMatStats() {
                  "small samples, different models, not a like-for-like frame swap).";
 }
 
+/* =====================================================
+   SIGNIFICANCE TEST FOR A REGRESSION SLOPE
+   Answers "could this slope just be noise?" - the question the "All six"
+   tab has to answer six times over, and the one R² on its own cannot
+   answer (a tiny sample can produce a high R² by luck).
+
+   The test is the standard two-tailed Student-t test of the null
+   hypothesis "slope = 0", with n-2 degrees of freedom. Its p-value is
+   exactly the regularized incomplete beta function I_x(df/2, 1/2)
+   evaluated at x = df / (df + t²), which is why the three functions below
+   exist: incompleteBeta() with betaContinuedFraction() are the Numerical
+   Recipes formulations of that function, and logGamma() is the Lanczos
+   approximation they need.
+
+   Written out here rather than pulled from a stats library because this
+   tool ships as one file with no dependencies.
+
+   VERIFIED against published t-table critical values before shipping:
+     t=2.228, df=10 -> p=0.0500      t=2.086, df=20 -> p=0.0500
+     t=3.169, df=10 -> p=0.0100      t=0,     df=10 -> p=1.0000
+   If you rewrite or "simplify" any of the three, re-check those four
+   numbers first - a subtly wrong p-value looks completely plausible on
+   screen and would silently mislabel a category.
+===================================================== */
+
+/** Natural log of the gamma function (Lanczos approximation, g=7). */
+function logGamma(z) {
+  const LANCZOS_G = 7;
+  const LANCZOS_C = [
+    0.99999999999980993, 676.5203681218851, -1259.1392167224028,
+    771.32342877765313, -176.61502916214059, 12.507343278686905,
+    -0.13857109526572012, 9.9843695780195716e-6, 1.5056327351493116e-7
+  ];
+  // Reflection formula: the series above is only valid for z >= 0.5.
+  if (z < 0.5) return Math.log(Math.PI / Math.sin(Math.PI * z)) - logGamma(1 - z);
+  z -= 1;
+  let x = LANCZOS_C[0];
+  for (let i = 1; i < LANCZOS_G + 2; i++) x += LANCZOS_C[i] / (z + i);
+  const t = z + LANCZOS_G + 0.5;
+  return 0.5 * Math.log(2 * Math.PI) + (z + 0.5) * Math.log(t) - t + Math.log(x);
+}
+
+/** Continued-fraction expansion used by incompleteBeta(); not called directly. */
+function betaContinuedFraction(a, b, x) {
+  const MAX_ITER = 250;      // convergence is fast here; this is a runaway guard
+  const EPS = 3e-16;         // relative accuracy to stop at
+  const TINY = 1e-300;       // stand-in for zero, to avoid dividing by it
+  const qab = a + b, qap = a + 1, qam = a - 1;
+  let c = 1, d = 1 - qab * x / qap;
+  if (Math.abs(d) < TINY) d = TINY;
+  d = 1 / d;
+  let h = d;
+  for (let m = 1; m <= MAX_ITER; m++) {
+    const m2 = 2 * m;
+    let aa = m * (b - m) * x / ((qam + m2) * (a + m2));
+    d = 1 + aa * d; if (Math.abs(d) < TINY) d = TINY;
+    c = 1 + aa / c; if (Math.abs(c) < TINY) c = TINY;
+    d = 1 / d; h *= d * c;
+    aa = -(a + m) * (qab + m) * x / ((a + m2) * (qap + m2));
+    d = 1 + aa * d; if (Math.abs(d) < TINY) d = TINY;
+    c = 1 + aa / c; if (Math.abs(c) < TINY) c = TINY;
+    d = 1 / d;
+    const del = d * c; h *= del;
+    if (Math.abs(del - 1) < EPS) break;
+  }
+  return h;
+}
+
+/** Regularized incomplete beta function I_x(a, b). */
+function incompleteBeta(a, b, x) {
+  if (x <= 0) return 0;
+  if (x >= 1) return 1;
+  const front = Math.exp(logGamma(a + b) - logGamma(a) - logGamma(b) +
+                         a * Math.log(x) + b * Math.log(1 - x));
+  // The continued fraction converges quickly on one side of this pivot only,
+  // so past it we evaluate the mirrored problem and subtract.
+  return x < (a + 1) / (a + b + 2)
+    ? front * betaContinuedFraction(a, b, x) / a
+    : 1 - front * betaContinuedFraction(b, a, 1 - x) / b;
+}
+
 /**
- * Ordinary least-squares linear regression.
- * @param {{x:number,y:number}[]} pts
- * @returns {{slope:number,intercept:number,r2:number}|null} null if fewer
- *   than 3 points or the x-values have no spread (vertical/degenerate fit).
+ * Two-tailed p-value of a t-statistic.
+ * @param {number} t
+ * @param {number} df - degrees of freedom
+ * @returns {number} p in [0,1], or NaN if the inputs can't be tested
  */
-function linReg(pts) { // pts: [{x,y}] -> {slope, intercept, r2}
+function tTestPValue(t, df) {
+  if (!isFinite(df) || df <= 0 || Number.isNaN(t)) return NaN;
+  if (!isFinite(t)) return 0;   // a perfect fit: zero residual variance
+  return incompleteBeta(df / 2, 0.5, df / (df + t * t));
+}
+
+/**
+ * Ordinary least-squares linear regression, plus the significance test for
+ * its slope.
+ * @param {{x:number,y:number}[]} pts
+ * @returns {{slope:number,intercept:number,r2:number,n:number,df:number,
+ *            stdErr:number,t:number,p:number}|null} null if fewer than 3
+ *   points or the x-values have no spread (vertical/degenerate fit).
+ */
+function linReg(pts) { // pts: [{x,y}] -> {slope, intercept, r2, n, df, stdErr, t, p}
   const n = pts.length;
   if (n < 3) return null;
   let sx=0, sy=0, sxx=0, sxy=0, syy=0;
@@ -872,8 +1143,42 @@ function linReg(pts) { // pts: [{x,y}] -> {slope, intercept, r2}
   const r2num = (n*sxy - sx*sy) ** 2;
   const r2den = denom * (n*syy - sy*sy);
   const r2 = r2den === 0 ? 0 : r2num / r2den;
-  return { slope, intercept, r2 };
+
+  // Standard error of the slope, then t = slope / stdErr against df = n-2.
+  // Note this is scale-free in one direction only: switching lbs<->kg or
+  // USD<->CHF rescales slope and stdErr by the same factor, so t, p and r2
+  // come out identical - which is exactly what you want, since changing
+  // units cannot create or destroy a relationship.
+  const sxxCentered = sxx - sx*sx/n;
+  let sse = 0;
+  for (const p of pts) { const e = p.y - (slope*p.x + intercept); sse += e*e; }
+  const df = n - 2;
+  const stdErr = (df > 0 && sxxCentered > 0) ? Math.sqrt((sse / df) / sxxCentered) : NaN;
+  const t = stdErr > 0 ? slope / stdErr : (slope === 0 ? 0 : Infinity);
+  const p = tTestPValue(t, df);
+
+  return { slope, intercept, r2, n, df, stdErr, t, p };
 }
+
+/* ---------- significance thresholds (named so they're findable) ---------- */
+const SIG_ALPHA = 0.05;                            // the conventional two-tailed threshold
+const SIG_TESTS = Object.keys(DATA).length;        // one slope test per category
+// Bonferroni correction. Testing SIG_TESTS categories at SIG_ALPHA apiece
+// leaves roughly a 1-(1-SIG_ALPHA)^SIG_TESTS chance (~26% at six tests) that
+// at least one "significant" result is noise. Dividing by the number of tests
+// holds that family-wise rate near SIG_ALPHA. Derived rather than typed, so
+// adding a seventh category re-tightens the bar automatically.
+const SIG_ALPHA_ADJUSTED = SIG_ALPHA / SIG_TESTS;
+
+/** Is a slope distinguishable from flat at the conventional threshold? */
+const isSignificant = reg => !!reg && isFinite(reg.p) && reg.p < SIG_ALPHA;
+/** ...and does it also survive the six-tests-at-once correction? */
+const clearsAdjusted = reg => !!reg && isFinite(reg.p) && reg.p < SIG_ALPHA_ADJUSTED;
+/** p-values below 0.001 print as "<0.001" rather than a run of zeros. Table cells. */
+const fmtP = p => !isFinite(p) ? "—" : p < 0.001 ? "<0.001" : p.toFixed(3);
+/** The same value as it reads mid-sentence: "p < 0.001", not "p = <0.001". */
+const fmtPStatement = p => !isFinite(p) ? "p unavailable"
+  : p < 0.001 ? "p < 0.001" : "p = " + p.toFixed(3);
 
 /* =====================================================
    RENDER
@@ -899,6 +1204,71 @@ function niceTicks(min, max, count) {
 
 const matchesMat = b => state.material === "all" || b.mat === state.material;
 
+const SVG_NS = "http://www.w3.org/2000/svg";
+
+/**
+ * Create an SVG element with attributes. Module-level rather than local to a
+ * render function because both the scatter view and the comparison view draw
+ * with it.
+ * @param {string} tag
+ * @param {object} [attrs]
+ * @returns {SVGElement}
+ */
+function svgEl(tag, attrs) {
+  const e = document.createElementNS(SVG_NS, tag);
+  for (const k in attrs) e.setAttribute(k, attrs[k]);
+  return e;
+}
+
+/**
+ * A bike's chart coordinates in the current display units, including any
+ * session weight/price adjustment. The single place that conversion happens,
+ * so the category view and the comparison view can never end up disagreeing
+ * about where a given bike sits.
+ * @param {object} b - a bike from DATA or userBikes
+ * @returns {{x:number, y:number}} x = price in display currency, y = weight in display unit
+ */
+function displayXY(b) {
+  const sess = getBikeSession(b);
+  return {
+    x: toDisplayPrice(b.price + (sess.priceAdj || 0)),
+    y: toDisplayWeight(b.lbs + (sess.adj || 0))
+  };
+}
+
+/**
+ * Draw the gridlines, tick labels and axis titles for a chart into `svg`.
+ * Shared by both views so their axes cannot drift apart in styling or in
+ * number formatting.
+ * @param {{top:number,right:number,bottom:number,left:number}} m - margins
+ * @param {(v:number)=>number} X - value -> pixel, horizontal
+ * @param {(v:number)=>number} Y - value -> pixel, vertical
+ */
+function drawAxesAndGrid(m, X, Y, xMin, xMax, yMin, yMax) {
+  const gridC = cssVar("--grid"), mutedC = cssVar("--muted"), inkC = cssVar("--ink");
+
+  for (const t of niceTicks(xMin, xMax, 7)) {
+    svg.appendChild(svgEl("line", { x1: X(t), x2: X(t), y1: m.top, y2: H - m.bottom, stroke: gridC, "stroke-width": 1 }));
+    const lbl = svgEl("text", { x: X(t), y: H - m.bottom + 20, "text-anchor": "middle", "font-size": 12, fill: mutedC });
+    lbl.textContent = fmtMoney(t);
+    svg.appendChild(lbl);
+  }
+  for (const t of niceTicks(yMin, yMax, 7)) {
+    svg.appendChild(svgEl("line", { x1: m.left, x2: W - m.right, y1: Y(t), y2: Y(t), stroke: gridC, "stroke-width": 1 }));
+    const lbl = svgEl("text", { x: m.left - 10, y: Y(t) + 4, "text-anchor": "end", "font-size": 12, fill: mutedC });
+    lbl.textContent = fmtW(t);
+    svg.appendChild(lbl);
+  }
+
+  const xTitle = svgEl("text", { x: (m.left + W - m.right) / 2, y: H - 12, "text-anchor": "middle", "font-size": 13, "font-weight": 700, fill: inkC });
+  xTitle.textContent = "Price (" + state.currency + ")";
+  svg.appendChild(xTitle);
+  const yMid = (m.top + H - m.bottom) / 2;
+  const yTitle = svgEl("text", { x: 18, y: yMid, "text-anchor": "middle", "font-size": 13, "font-weight": 700, fill: inkC, transform: "rotate(-90 18 " + yMid + ")" });
+  yTitle.textContent = "Weight (" + unitLabel() + ")";
+  svg.appendChild(yTitle);
+}
+
 /**
  * Redraw the entire widget (chart, fit line, material stats, table) for the
  * current state. This is the public entry point every event handler calls;
@@ -916,14 +1286,12 @@ function render() {
 
 /** The actual draw logic. Call render(), not this, from event handlers. */
 function renderInner() {
+  // The 7th tab is a different chart entirely, with its own panels below it.
+  setViewMode(state.category === COMPARE_ID);
+  if (state.category === COMPARE_ID) { renderCompare(); return; }
+
   const bikes = allBikesIn(state.category).filter(b => !getBikeSession(b).off && matchesMat(b));
   svg.innerHTML = "";
-  const NS = "http://www.w3.org/2000/svg";
-  const el = (tag, attrs) => {
-    const e = document.createElementNS(NS, tag);
-    for (const k in attrs) e.setAttribute(k, attrs[k]);
-    return e;
-  };
 
   // display-space values. Each point carries its own session snapshot
   // (adj/priceAdj/user) so the rest of renderInner can keep reading
@@ -936,14 +1304,13 @@ function renderInner() {
       adj: sess.adj,
       priceAdj: sess.priceAdj,
       user: isUserBike(state.category, b),
-      x: toDisplayPrice(b.price + (sess.priceAdj || 0)),
-      y: toDisplayWeight(b.lbs + (sess.adj || 0))
+      ...displayXY(b)
     };
   });
 
   // Nothing to plot (e.g. an alloy filter with no alloy bikes in this category)
   if (pts.length === 0) {
-    const msg = el("text", {
+    const msg = svgEl("text", {
       x: W / 2, y: H / 2, "text-anchor": "middle", "font-size": 16, fill: cssVar("--muted")
     });
     msg.textContent = "No " + (state.material === "all" ? "" : state.material + " ") +
@@ -964,28 +1331,10 @@ function renderInner() {
   const X = v => M.left + (v - xMin) / (xMax - xMin) * (W - M.left - M.right);
   const Y = v => H - M.bottom - (v - yMin) / (yMax - yMin) * (H - M.top - M.bottom);
 
-  const gridC = cssVar("--grid"), mutedC = cssVar("--muted"), inkC = cssVar("--ink");
+  const mutedC = cssVar("--muted"), inkC = cssVar("--ink");
   const pointC = cssVar("--point"), userC = cssVar("--point-user"), fitC = cssVar("--fit");
 
-  // grid + axes
-  for (const t of niceTicks(xMin, xMax, 7)) {
-    svg.appendChild(el("line", { x1: X(t), x2: X(t), y1: M.top, y2: H - M.bottom, stroke: gridC, "stroke-width": 1 }));
-    const lbl = el("text", { x: X(t), y: H - M.bottom + 20, "text-anchor": "middle", "font-size": 12, fill: mutedC });
-    lbl.textContent = fmtMoney(t);
-    svg.appendChild(lbl);
-  }
-  for (const t of niceTicks(yMin, yMax, 7)) {
-    svg.appendChild(el("line", { x1: M.left, x2: W - M.right, y1: Y(t), y2: Y(t), stroke: gridC, "stroke-width": 1 }));
-    const lbl = el("text", { x: M.left - 10, y: Y(t) + 4, "text-anchor": "end", "font-size": 12, fill: mutedC });
-    lbl.textContent = fmtW(t);
-    svg.appendChild(lbl);
-  }
-  const xTitle = el("text", { x: (M.left + W - M.right) / 2, y: H - 12, "text-anchor": "middle", "font-size": 13, "font-weight": 700, fill: inkC });
-  xTitle.textContent = "Price (" + state.currency + ")";
-  svg.appendChild(xTitle);
-  const yTitle = el("text", { x: 18, y: (M.top + H - M.bottom) / 2, "text-anchor": "middle", "font-size": 13, "font-weight": 700, fill: inkC, transform: "rotate(-90 18 " + ((M.top + H - M.bottom) / 2) + ")" });
-  yTitle.textContent = "Weight (" + unitLabel() + ")";
-  svg.appendChild(yTitle);
+  drawAxesAndGrid(M, X, Y, xMin, xMax, yMin, yMax);
 
   // fit line
   const stats = document.getElementById("fitStats");
@@ -995,18 +1344,29 @@ function renderInner() {
     if (reg) {
       const y1 = reg.slope * xMin + reg.intercept;
       const y2 = reg.slope * xMax + reg.intercept;
-      svg.appendChild(el("line", {
+      svg.appendChild(svgEl("line", {
         x1: X(xMin), y1: Y(y1), x2: X(xMax), y2: Y(y2),
         stroke: fitC, "stroke-width": 2.5, "stroke-dasharray": "8 5", opacity: .85
       }));
+      // Same slope test the "All six" tab reports, appended here so the two
+      // views can't tell a visitor different stories about one category.
+      // This string goes through innerHTML (r2Html injects markup), so the "<"
+      // in "p < 0.001" has to be escaped on the way in.
+      const pText = fmtPStatement(reg.p).replace(/</g, "&lt;");
+      const sigNote = isSignificant(reg)
+        ? " &nbsp;|&nbsp; slope is statistically significant (" + pText + ")"
+        : " &nbsp;|&nbsp; <b>not statistically significant</b> (" + pText +
+          ") \u2014 with " + reg.n + " bikes this dataset can't tell the slope from flat";
+
       // slope -> cost of shedding one unit of weight
       if (reg.slope < 0) {
         const perUnit = 1 / Math.abs(reg.slope); // currency per weight unit
-        stats.innerHTML = "Fit: shedding 1 " + unitLabel() + " costs roughly <b>" +
+        stats.innerHTML = "Fit: shedding 1 " + unitSingular() + " costs roughly <b>" +
           fmtMoney(perUnit) + "</b> in this category &nbsp;|&nbsp; " + r2Html(reg.r2) +
-          (reg.r2 < 0.3 ? " (weak fit \u2014 read with caution)" : "");
+          (reg.r2 < 0.3 ? " (weak fit \u2014 read with caution)" : "") + sigNote;
       } else {
-        stats.innerHTML = "Fit slope is flat or positive here \u2014 price isn't buying weight savings in this dataset. " + r2Html(reg.r2);
+        stats.innerHTML = "Fit slope is flat or positive here \u2014 price isn't buying weight savings in this dataset. " +
+          r2Html(reg.r2) + sigNote;
       }
     } else {
       stats.textContent = "Need at least 3 bikes for a fit line.";
@@ -1017,8 +1377,8 @@ function renderInner() {
 
   // points
   for (const p of pts) {
-    const c = el("circle", { cx: X(p.x), cy: Y(p.y), r: 6, fill: p.user ? userC : pointC, stroke: cssVar("--panel"), "stroke-width": 1.5 });
-    const t = document.createElementNS(NS, "title");
+    const c = svgEl("circle", { cx: X(p.x), cy: Y(p.y), r: 6, fill: p.user ? userC : pointC, stroke: cssVar("--panel"), "stroke-width": 1.5 });
+    const t = svgEl("title");
     t.textContent = p.name + " ('" + String(p.year).slice(-2) + ")" + ((p.adj || p.priceAdj) ? " [adjusted]" : "") + " \u2014 " + fmtMoney(p.x) + ", " + fmtW(p.y) + " " + unitLabel();
     c.appendChild(t);
     svg.appendChild(c);
@@ -1072,9 +1432,9 @@ function renderInner() {
     const far = Math.abs(chosen.dy) > 18;
     if (far) {
       const lx = chosen.anchor === "start" ? box.x - 2 : chosen.anchor === "end" ? box.x + box.w + 2 : px;
-      svg.appendChild(el("line", { x1: px, y1: py, x2: lx, y2: box.y + hpx / 2, stroke: mutedC, "stroke-width": 0.8, opacity: .6 }));
+      svg.appendChild(svgEl("line", { x1: px, y1: py, x2: lx, y2: box.y + hpx / 2, stroke: mutedC, "stroke-width": 0.8, opacity: .6 }));
     }
-    const lbl = el("text", {
+    const lbl = svgEl("text", {
       x: chosen.anchor === "start" ? box.x : chosen.anchor === "end" ? box.x + box.w : box.x + box.w / 2,
       y: box.y + FS - 1,
       "text-anchor": chosen.anchor, "font-size": FS,
@@ -1085,6 +1445,439 @@ function renderInner() {
   }
 
   renderTable();
+}
+
+/* =====================================================
+   COMPARISON VIEW RENDER ("All six" tab)
+   Draws every category's fit line on one pair of axes, labels each line
+   with its significance verdict, and builds the annotated summary table
+   and notes beneath the chart.
+
+   Design decisions worth keeping:
+   · Each line is clipped to its own category's observed price range. An
+     extrapolated DH line running down to XC money would be a picture of
+     something that does not exist in the data.
+   · The underlying bikes are drawn as faint dots in the same color, so a
+     line is never seen without the cloud it was fitted to.
+   · Line labels live in a right-hand gutter with leader lines rather than
+     floating next to the lines. Six lines that converge at the right edge
+     would otherwise stack their labels on top of each other, and the
+     de-collision pass the scatter view uses is overkill for six items.
+===================================================== */
+
+/* ---------- comparison-view layout constants ---------- */
+// Wider right margin than the scatter view (M): the six line labels live in
+// a gutter outside the plot area, and that gutter has to fit the longest
+// verdict string, "✗ not significant", at CMP_VERDICT_FS.
+const M_CMP = { top: 34, right: 170, bottom: 52, left: 66 };
+const CMP_LABEL_BLOCK_H = 46;   // px of vertical space one 3-line gutter label needs
+// Text baselines of those three lines, measured from the top of the block.
+// They must stay inside CMP_LABEL_BLOCK_H or adjacent labels start to touch.
+const CMP_BASELINES = { name: 12, verdict: 27, headline: 41 };
+// Deliberately a shade larger than the scatter view's 11px point labels. The
+// SVG is scaled down to phone width, where these three lines carry the whole
+// annotation; the summary table below is the fallback when they get too small.
+const CMP_NAME_FS = 13;         // gutter label line 1: category name
+const CMP_VERDICT_FS = 11.5;    // gutter label line 2: significance verdict
+const CMP_HEADLINE_FS = 11;     // gutter label line 3: the headline number
+const CMP_LINE_W = 3;           // fit-line stroke; thicker than the scatter view's 2.5 because here the lines are the whole content
+const CMP_DOT_R = 2.6;          // faint context dots behind the lines
+const CMP_DOT_OPACITY = .28;    // low enough that ~100 dots never compete with 6 lines
+
+/**
+ * Points and regression for one category under the current
+ * unit/currency/material/checkbox state.
+ * @param {string} cat - a key of DATA
+ * @returns {{cat:string, pts:{x:number,y:number}[], reg:object|null, color:string}}
+ */
+function buildCategoryFit(cat) {
+  const pts = allBikesIn(cat)
+    .filter(b => !getBikeSession(b).off && matchesMat(b))
+    .map(b => displayXY(b));
+  return { cat, pts, reg: linReg(pts), color: cssVar(CATEGORY_COLORS[cat]) };
+}
+
+/**
+ * The short third line of a gutter label. The cost-per-unit number is only
+ * quoted where the test says the slope is worth quoting - printing "$4,751
+ * per lb" under a line the same label just called "not significant" would
+ * undo the label.
+ */
+function slopeHeadline(reg) {
+  if (!reg) return "too few bikes";
+  if (!isSignificant(reg)) return "no reliable slope";
+  if (reg.slope >= 0) return "costlier = heavier";
+  return "≈" + fmtMoney(1 / Math.abs(reg.slope)) + " per " + unitSingular();
+}
+
+/**
+ * One category's result in a sentence, generated from its own numbers rather
+ * than written per category, so it can never go stale against an edit to
+ * DATA or against a filter the visitor has applied.
+ */
+function plainReading(f) {
+  const reg = f.reg, n = f.pts.length;
+  if (!reg) {
+    return "Only " + n + " bike" + (n === 1 ? "" : "s") + " showing here, and a line needs at least three. " +
+           "Clear the material filter, or re-check some bikes on this category's own tab.";
+  }
+  if (!isSignificant(reg)) {
+    return "Price and weight move together no more than chance would produce with " + n +
+           " bikes (" + fmtPStatement(reg.p) + "). Inside this category, spending more is not " +
+           "reliably buying a lighter bike.";
+  }
+  if (reg.slope >= 0) {
+    return "The slope runs the other way: the pricier bikes here are the heavier ones. Money in this " +
+           "category buys motor, battery and spec — not lightness.";
+  }
+  const pct = Math.round(reg.r2 * 100);
+  return "Spending more does reliably buy a lighter bike here — roughly " +
+         fmtMoney(1 / Math.abs(reg.slope)) + " per " + unitSingular() + " shed" +
+         (clearsAdjusted(reg) ? ", and it survives correcting for six tests at once" : "") +
+         ". Weight alone accounts for " + pct + "% of the price spread in this category; the other " +
+         (100 - pct) + "% is everything else on the bike.";
+}
+
+/**
+ * Fill the {placeholders} in COMPARE_LEDE and COMPARE_NOTES from the live
+ * numbers. An unrecognized placeholder is left visibly intact rather than
+ * silently blanked, so a typo in the copy shows up instead of vanishing.
+ */
+function fillNotePlaceholders(text, fits) {
+  const counts = fits.map(f => f.pts.length).filter(n => n > 0);
+  const lo = counts.length ? Math.min(...counts) : 0;
+  const hi = counts.length ? Math.max(...counts) : 0;
+  const values = {
+    alpha:      String(SIG_ALPHA),
+    alphaPct:   Math.round(SIG_ALPHA * 100) + "%",
+    alphaB:     SIG_ALPHA_ADJUSTED.toFixed(4),
+    k:          String(SIG_TESTS),
+    nRange:     lo === hi ? String(lo) : lo + "–" + hi,
+    familywise: Math.round((1 - Math.pow(1 - SIG_ALPHA, SIG_TESTS)) * 100) + "%"
+  };
+  return text.replace(/\{(\w+)\}/g, (whole, key) => (key in values ? values[key] : whole));
+}
+
+/** Draw the all-categories chart. Called from renderInner(), never directly. */
+function renderCompare() {
+  svg.innerHTML = "";
+  const m = M_CMP;
+  const stats = document.getElementById("fitStats");
+  document.getElementById("matStats").textContent = "";
+
+  const fits = Object.keys(DATA).map(cat => buildCategoryFit(cat)).filter(f => f.pts.length > 0);
+
+  if (fits.length === 0) {
+    const msg = svgEl("text", { x: W / 2, y: H / 2, "text-anchor": "middle", "font-size": 16, fill: cssVar("--muted") });
+    msg.textContent = "No " + (state.material === "all" ? "" : state.material + " ") +
+                      "bikes are showing in any category.";
+    svg.appendChild(msg);
+    stats.textContent = "";
+    renderCompareSummary([]);
+    renderCompareNotes([]);
+    return;
+  }
+
+  // Axis range: the union of every category's points, plus each fit line's two
+  // endpoints — a fitted value at the edge of a category's price range can sit
+  // just outside that category's observed weight range, and clipping a line at
+  // the frame edge would misrepresent it.
+  const xsAll = [], ysAll = [];
+  for (const f of fits) {
+    for (const p of f.pts) { xsAll.push(p.x); ysAll.push(p.y); }
+    if (f.reg) {
+      const lo = Math.min(...f.pts.map(p => p.x)), hi = Math.max(...f.pts.map(p => p.x));
+      ysAll.push(f.reg.slope * lo + f.reg.intercept, f.reg.slope * hi + f.reg.intercept);
+    }
+  }
+  // Tighter padding than the scatter view's 10%/14%: with six categories
+  // stacked up the plot is already full, and the labels are outside it.
+  const xPad = (Math.max(...xsAll) - Math.min(...xsAll)) * 0.05 || 1;
+  const yPad = (Math.max(...ysAll) - Math.min(...ysAll)) * 0.05 || 1;
+  const xMin = Math.min(...xsAll) - xPad, xMax = Math.max(...xsAll) + xPad;
+  const yMin = Math.min(...ysAll) - yPad, yMax = Math.max(...ysAll) + yPad;
+  const X = v => m.left + (v - xMin) / (xMax - xMin) * (W - m.left - m.right);
+  const Y = v => H - m.bottom - (v - yMin) / (yMax - yMin) * (H - m.top - m.bottom);
+
+  drawAxesAndGrid(m, X, Y, xMin, xMax, yMin, yMax);
+
+  const mutedC = cssVar("--muted"), inkC = cssVar("--ink");
+
+  const caption = svgEl("text", { x: m.left, y: 18, "font-size": 11.5, fill: mutedC });
+  caption.textContent = COMPARE_CHART_CAPTION;
+  svg.appendChild(caption);
+
+  // Faint dots first, so the lines draw on top of the cloud they were fitted to.
+  for (const f of fits) {
+    for (const p of f.pts) {
+      svg.appendChild(svgEl("circle", { cx: X(p.x), cy: Y(p.y), r: CMP_DOT_R, fill: f.color, opacity: CMP_DOT_OPACITY }));
+    }
+  }
+
+  // Fit lines, collecting where each one ends so its label can point back at it.
+  const labels = [];
+  for (const f of fits) {
+    const xLo = Math.min(...f.pts.map(p => p.x)), xHi = Math.max(...f.pts.map(p => p.x));
+    let endX, endY;
+    if (f.reg) {
+      const yLo = f.reg.slope * xLo + f.reg.intercept;
+      const yHi = f.reg.slope * xHi + f.reg.intercept;
+      const line = svgEl("line", {
+        x1: X(xLo), y1: Y(yLo), x2: X(xHi), y2: Y(yHi),
+        stroke: f.color, "stroke-width": CMP_LINE_W, "stroke-dasharray": "9 6",
+        "stroke-linecap": "round"
+      });
+      const tip = svgEl("title");
+      tip.textContent = f.cat + " — " + f.pts.length + " bikes, R² = " + f.reg.r2.toFixed(2) +
+                        ", " + fmtPStatement(f.reg.p) +
+                        " (" + (isSignificant(f.reg) ? "significant" : "not significant") + ")";
+      line.appendChild(tip);
+      svg.appendChild(line);
+      endX = X(xHi); endY = Y(yHi);
+    } else {
+      // No line to point at, so aim the label at the middle of the few points there are.
+      endX = X((xLo + xHi) / 2);
+      endY = Y(f.pts.reduce((sum, p) => sum + p.y, 0) / f.pts.length);
+    }
+    labels.push({ f, endX, endY });
+  }
+
+  /* Gutter labels. Keep each one as close to its line's right-hand end as it
+     can get while never overlapping the label above it, then slide the whole
+     stack up if it ran past the bottom of the plot. Six fixed-height blocks
+     means one downward pass is enough — no iterative de-collision needed. */
+  labels.sort((a, b) => a.endY - b.endY);
+  const plotTop = m.top + 4, plotBottom = H - m.bottom;
+  let cursor = plotTop;
+  for (const L of labels) {
+    L.y = Math.max(L.endY - CMP_LABEL_BLOCK_H / 2, cursor);
+    cursor = L.y + CMP_LABEL_BLOCK_H;
+  }
+  const overflow = cursor - plotBottom;
+  if (overflow > 0) for (const L of labels) L.y = Math.max(plotTop, L.y - overflow);
+
+  const gutterX = W - m.right + 14;
+  for (const L of labels) {
+    const sig = isSignificant(L.f.reg);
+
+    // The leader line doubles as the color key: it is drawn in the category's
+    // own color, so the name beside it can stay in --ink and never has to be
+    // legible in a mid-tone hue on a pale panel.
+    // A leader for a category with NO fit is drawn finer and fainter on
+    // purpose: a long leader in the same weight as the others reads as a flat
+    // fit line at a glance, which is the one thing that category does not have.
+    svg.appendChild(svgEl("line", {
+      x1: L.endX, y1: L.endY, x2: gutterX - 6, y2: L.y + CMP_BASELINES.name + 3,
+      stroke: L.f.color,
+      "stroke-width": L.f.reg ? 1.2 : 1,
+      "stroke-dasharray": L.f.reg ? "3 3" : "1 5",
+      opacity: L.f.reg ? .85 : .5
+    }));
+
+    const name = svgEl("text", { x: gutterX, y: L.y + CMP_BASELINES.name, "font-size": CMP_NAME_FS, "font-weight": 700, fill: inkC });
+    name.textContent = L.f.cat;
+    svg.appendChild(name);
+
+    const verdict = svgEl("text", { x: gutterX, y: L.y + CMP_BASELINES.verdict, "font-size": CMP_VERDICT_FS, fill: sig ? inkC : mutedC });
+    verdict.textContent = !L.f.reg ? "— no fit"
+      : sig ? "✓ significant" + (clearsAdjusted(L.f.reg) ? " †" : "")
+            : "✗ not significant";
+    svg.appendChild(verdict);
+
+    const headline = svgEl("text", { x: gutterX, y: L.y + CMP_BASELINES.headline, "font-size": CMP_HEADLINE_FS, fill: mutedC });
+    headline.textContent = slopeHeadline(L.f.reg);
+    svg.appendChild(headline);
+  }
+
+  // Headline readout under the chart.
+  const fitted = fits.filter(f => f.reg);
+  const nSig = fitted.filter(f => isSignificant(f.reg)).length;
+  const nAdj = fitted.filter(f => clearsAdjusted(f.reg)).length;
+  const nUnfit = fits.length - fitted.length;
+  stats.innerHTML =
+    "<b>" + nSig + " of " + fitted.length + "</b> categories show a price–weight slope distinguishable " +
+    "from flat at p &lt; " + SIG_ALPHA + " &nbsp;|&nbsp; <b>" + nAdj + "</b> still clear the stricter " +
+    "six-test threshold (p &lt; " + SIG_ALPHA_ADJUSTED.toFixed(4) + ")" +
+    (nUnfit > 0 ? " &nbsp;|&nbsp; " + nUnfit + (nUnfit === 1 ? " category has" : " categories have") +
+                  " too few bikes showing to fit a line" : "");
+
+  renderCompareSummary(fits);
+  renderCompareNotes(fits);
+}
+
+/**
+ * Build the annotated summary table under the comparison chart. Every cell is
+ * set with textContent rather than innerHTML — the strings mix generated
+ * numbers with category names, and there is no reason for any of it to be
+ * parsed as markup.
+ */
+function renderCompareSummary(fits) {
+  const wrap = document.getElementById("cmpTableWrap");
+  const footnote = document.getElementById("cmpFootnote");
+  wrap.innerHTML = "";
+  footnote.textContent = "";
+
+  if (fits.length === 0) {
+    wrap.textContent = "Nothing to summarize — no bikes match the current filter.";
+    return;
+  }
+
+  const table = document.createElement("table");
+  table.className = "cmp";
+
+  const caption = document.createElement("caption");
+  caption.className = "sr-only";
+  caption.textContent = "Least-squares fit of price against weight for each bike category, with the " +
+                        "number of bikes, cost per unit of weight shed, R squared, p-value, whether " +
+                        "the slope is statistically significant, and a plain-English reading.";
+  table.appendChild(caption);
+
+  const headings = [
+    ["Category", ""],
+    ["Bikes", "num"],
+    ["Cost per " + unitSingular() + " shed", "num"],
+    ["R²", "num"],
+    ["p-value", "num"],
+    ["Slope verdict", ""],
+    ["What that means", ""]
+  ];
+  const thead = document.createElement("thead");
+  const hrow = document.createElement("tr");
+  for (const [text, cls] of headings) {
+    const th = document.createElement("th");
+    th.textContent = text;
+    if (cls) th.className = cls;
+    th.scope = "col";
+    hrow.appendChild(th);
+  }
+  thead.appendChild(hrow);
+  table.appendChild(thead);
+
+  const tbody = document.createElement("tbody");
+  let anyAdjusted = false;
+
+  for (const f of fits) {
+    const reg = f.reg;
+    const tr = document.createElement("tr");
+
+    // category, with its line color as a swatch
+    const tdCat = document.createElement("td");
+    tdCat.className = "cmp-cat-cell";
+    const swatch = document.createElement("span");
+    swatch.className = "cmp-swatch";
+    swatch.style.background = f.color;
+    tdCat.appendChild(swatch);
+    const catName = document.createElement("span");
+    catName.className = "cmp-cat";
+    catName.textContent = f.cat;
+    tdCat.appendChild(catName);
+    tr.appendChild(tdCat);
+
+    const cell = (text, cls, title) => {
+      const td = document.createElement("td");
+      td.textContent = text;
+      if (cls) td.className = cls;
+      if (title) td.title = title;
+      tr.appendChild(td);
+      return td;
+    };
+
+    cell(String(f.pts.length), "num");
+
+    if (!reg) {
+      cell("—", "num", "A fit needs at least 3 bikes.");
+      cell("—", "num");
+      cell("—", "num");
+    } else {
+      // A cost-per-unit figure from a slope the test can't tell from flat is
+      // arithmetic, not a finding — a near-flat slope produces numbers in the
+      // hundreds of thousands. Parentheses mark it as reference only rather
+      // than hiding it, and the footnote says what they mean.
+      if (reg.slope >= 0) {
+        cell("n/a", "num", "The slope points upward in this category — the more expensive bikes are the " +
+                           "heavier ones, so there is no cost-per-unit-shed to quote.");
+      } else {
+        const cost = fmtMoney(1 / Math.abs(reg.slope));
+        cell(isSignificant(reg) ? cost : "(" + cost + ")", "num",
+             isSignificant(reg) ? "" : "In parentheses: this slope isn't distinguishable from flat, so " +
+                                       "the figure is arithmetic rather than a finding.");
+      }
+      cell(reg.r2.toFixed(2), "num", "Share of this category's price spread that weight alone accounts for.");
+      cell(fmtP(reg.p), "num", "Chance of seeing a slope this steep if price and weight were unrelated.");
+    }
+
+    // verdict chip: symbol + word, never color alone
+    const tdVerdict = document.createElement("td");
+    const chip = document.createElement("span");
+    if (!reg) {
+      chip.className = "sig sig-no";
+      chip.textContent = "✗ no fit";
+    } else if (isSignificant(reg)) {
+      chip.className = "sig sig-yes";
+      const dagger = clearsAdjusted(reg);
+      if (dagger) anyAdjusted = true;
+      chip.textContent = "✓ significant" + (dagger ? " †" : "");
+    } else {
+      chip.className = "sig sig-no";
+      chip.textContent = "✗ not significant";
+    }
+    tdVerdict.appendChild(chip);
+    tr.appendChild(tdVerdict);
+
+    cell(plainReading(f), "cmp-read");
+    tbody.appendChild(tr);
+  }
+
+  table.appendChild(tbody);
+  wrap.appendChild(table);
+
+  footnote.textContent =
+    "Significant = p below " + SIG_ALPHA + " on the slope. " +
+    (anyAdjusted ? "† " : "A † would mark a category that ") +
+    "also clears p below " + SIG_ALPHA_ADJUSTED.toFixed(4) + ", the stricter bar for testing " +
+    SIG_TESTS + " categories at once. A cost per " + unitSingular() +
+    " in parentheses comes from a slope the test could not tell from flat — it is there for " +
+    "reference, not for use; \u201Cn/a\u201D means the slope points upward, so there is no cost per " +
+    unitSingular() + " shed to quote.";
+}
+
+/** Fill the comparison view's lede and "how to read this" list from COMPARE_NOTES. */
+function renderCompareNotes(fits) {
+  document.getElementById("cmpLede").textContent = fillNotePlaceholders(COMPARE_LEDE, fits);
+  const dl = document.getElementById("cmpNotes");
+  dl.innerHTML = "";
+  for (const note of COMPARE_NOTES) {
+    const dt = document.createElement("dt");
+    dt.textContent = note.q;
+    const dd = document.createElement("dd");
+    dd.textContent = fillNotePlaceholders(note.a, fits);
+    dl.appendChild(dt);
+    dl.appendChild(dd);
+  }
+}
+
+/**
+ * Show the panels that belong to the current view and hide the ones that
+ * don't. The per-bike table and the add-bike form both operate on a single
+ * category, so neither has any meaning on the comparison tab; the comparison
+ * summary has no meaning anywhere else.
+ * @param {boolean} isCompare
+ */
+function setViewMode(isCompare) {
+  document.getElementById("tablePanel").hidden = isCompare;
+  document.getElementById("addPanel").hidden   = isCompare;
+  document.getElementById("cmpPanel").hidden   = !isCompare;
+
+  // The fit lines ARE the comparison view — there is nothing to toggle off.
+  const fitBtnEl = document.getElementById("fitBtn");
+  fitBtnEl.disabled = isCompare;
+  fitBtnEl.title = isCompare
+    ? "The fit lines are what this view shows — the toggle applies to the single-category tabs."
+    : "";
+
+  svg.setAttribute("aria-label", isCompare
+    ? "Chart comparing the price-versus-weight fit line of every bike category on shared axes"
+    : "Scatterplot of bike weight versus price for the selected category");
 }
 
 /* =====================================================
@@ -1288,8 +2081,11 @@ function setToggleActive(container, activeBtn) {
 }
 
 // tabs
+// Six category tabs from DATA's keys, then the cross-category comparison
+// view — which is why this iterates a concatenated list rather than
+// Object.keys(DATA) directly. COMPARE_ID is a sentinel, not a DATA key.
 const tabsEl = document.getElementById("tabs");
-for (const cat of Object.keys(DATA)) {
+for (const cat of Object.keys(DATA).concat([COMPARE_ID])) {
   const b = document.createElement("button");
   b.textContent = cat;
   b.className = cat === state.category ? "active" : "";
@@ -1302,7 +2098,9 @@ for (const cat of Object.keys(DATA)) {
       x.classList.toggle("active", isActive);
       x.setAttribute("aria-selected", String(isActive));
     });
-    document.getElementById("addTitle").textContent = "Add a bike \u2014 " + cat;
+    // The add-bike form is hidden on the comparison tab; leave its heading
+    // pointing at the last real category so it reads correctly on return.
+    if (cat !== COMPARE_ID) document.getElementById("addTitle").textContent = "Add a bike \u2014 " + cat;
     renderChips(); render();
   };
   tabsEl.appendChild(b);
@@ -1454,14 +2252,16 @@ function populateMaterialSelect() {
 function renderChips() {
   const wrap = document.getElementById("userChips");
   wrap.innerHTML = "";
-  userBikes[state.category].forEach((b, i) => {
+  // COMPARE_ID isn't a DATA key, so it has no userBikes array — no chips to draw.
+  const list = userBikes[state.category] || [];
+  list.forEach((b, i) => {
     const chip = document.createElement("span");
     chip.textContent = b.name + " ('" + String(b.year).slice(-2) + ")";
     const x = document.createElement("button");
     x.textContent = "\u00D7";
     x.title = "Remove";
     x.setAttribute("aria-label", "Remove " + b.name + " from the chart");
-    x.onclick = () => { userBikes[state.category].splice(i, 1); renderChips(); render(); };
+    x.onclick = () => { list.splice(i, 1); renderChips(); render(); };
     chip.appendChild(x);
     wrap.appendChild(chip);
   });
