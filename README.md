@@ -63,3 +63,11 @@ Every bike carries a `mat` tag (`"carbon"` or `"alloy"`), driving the Carbon/All
 ## External dependencies
 
 The widget is otherwise fully self-contained vanilla HTML/JS/CSS, with one runtime network call: the Frankfurter FX endpoint (`api.frankfurter.dev`, falling back to `api.frankfurter.app`). It degrades gracefully — if that call fails or is blocked, everything still works and CHF just uses the cached or fallback rate.
+
+## License
+
+Copyright (c) 2026 Post Millennium Renaissance (https://www.postmillenniumrenaissance.com).
+
+Released under the [PolyForm Noncommercial License 1.0.0](LICENSE). In short: free to use, copy, modify and share for any noncommercial purpose, including personal use, research, education, and use by charities, environmental-protection organizations and government institutions. Commercial use needs a separate license; ask through postmillenniumrenaissance.com. Copies must keep the `Required Notice:` line in `LICENSE`. The license text controls over this summary.
+
+Facts, figures and quotations taken from third-party studies and sources remain the property of their authors. This license covers only this project's own code, selection and arrangement of material, and original text. Third-party components keep their own licenses.
