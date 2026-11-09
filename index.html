@@ -103,6 +103,8 @@
        category tabs, whose background is --panel (pure white here), where a
        white sweep is invisible. */
     --shimmer: rgba(255, 45, 149, .26);
+    --tex-ink: #1d2530;   /* PMR texture: wet-granite ink on rain-grey paper */
+    --tex-opacity: 0.08;
   }
   [data-theme="valdisole"] {
     --bg: #171d18;        /* black loam */
@@ -138,6 +140,8 @@
                              two themes that carry a deliberate geometry */
     --radius-panel: 14px;
     --tab-shadow: 0 1px 3px rgba(0,0,0,.35);
+    --tex-ink: #7fb069;   /* PMR texture: light ink on the dark loam (the one dark theme) */
+    --tex-opacity: 0.09;
   }
   [data-theme="rampage"] {
     --bg: #f5e9d9;        /* desert sandstone */
@@ -157,6 +161,8 @@
     --radius-btn: 9px;
     --radius-panel: 14px;
     --tab-shadow: 0 1px 3px rgba(0,0,0,.20);
+    --tex-ink: #752B1B;   /* PMR texture: site default oxblood on sandstone */
+    --tex-opacity: 0.11;
   }
   /* LEOGANG — glacier melt and alpine meadow. Was a near-white neutral with a
      cool accent, which made it read as a variant of Fort William rather than
@@ -188,6 +194,28 @@
     --radius-btn: 999px;  /* full pills — the opposite pole from Fort William */
     --radius-panel: 20px;
     --tab-shadow: 0 2px 6px rgba(10, 125, 109, .30);
+    --tex-ink: #16302a;   /* PMR texture: deep spruce on glacier mint */
+    --tex-opacity: 0.09;
+  }
+
+  /* PMR texture layer 1: moose-skulls (site artwork), fades top to bottom.
+     position:absolute (not fixed) because the page is iframed into Pinkbike.
+     Needs a served page: the mask loads from postmillenniumrenaissance.com. */
+  .texture {
+    position: absolute;
+    inset: 0;
+    z-index: -1;
+    pointer-events: none;
+    background-color: var(--tex-ink, #752B1B);
+    opacity: var(--tex-opacity, 0.11);
+    -webkit-mask-image: linear-gradient(to bottom, #000 15%, rgba(0,0,0,0.5) 100%), url("https://www.postmillenniumrenaissance.com/textures/masks/moose-skulls.webp");
+    mask-image: linear-gradient(to bottom, #000 15%, rgba(0,0,0,0.5) 100%), url("https://www.postmillenniumrenaissance.com/textures/masks/moose-skulls.webp");
+    -webkit-mask-size: 100% 100%, 212px auto;
+    mask-size: 100% 100%, 212px auto;
+    -webkit-mask-repeat: no-repeat, repeat;
+    mask-repeat: no-repeat, repeat;
+    -webkit-mask-composite: source-in;
+    mask-composite: intersect;
   }
 
   * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -207,6 +235,7 @@
     color: var(--ink);
     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
     padding: 16px;
+    position: relative;   /* anchors the .texture layer */
     transition: background .25s, color .25s;
   }
   .wrap { max-width: 1000px; margin: 0 auto; }
@@ -447,6 +476,7 @@
 </style>
 </head>
 <body>
+<div class="texture" aria-hidden="true"></div>
 <div class="wrap">
   <header>
     <h1>Weight vs. Price <span>// what a pound costs</span></h1>
