@@ -366,7 +366,7 @@
   }
 
   /* chart panel */
-  .panel { background: var(--panel); border: 1px solid var(--grid); border-radius: var(--radius-panel); padding: 12px; }
+  .panel { position: relative; background: var(--panel); border: 1px solid var(--grid); border-radius: var(--radius-panel); padding: 12px; }
   svg { width: 100%; height: auto; display: block; }
   .fit-stats {
     font-size: .78rem; color: var(--muted); margin-top: 6px; padding: 0 6px;
@@ -471,6 +471,41 @@
   }
   .user-chips button { border: none; background: none; color: var(--point-user); font-weight: 800; cursor: pointer; font-size: .85rem; }
 
+  /* ---- chart tools row (save image / CSV / copy link) ---- */
+  .chart-tools {
+    display: flex; flex-wrap: wrap; align-items: center; gap: 8px;
+    margin-top: 10px; padding: 0 6px;
+  }
+  .chart-tools button {
+    border: 1px solid var(--grid); background: var(--bg); color: var(--ink);
+    font-size: .75rem; font-weight: 700; padding: 5px 10px; border-radius: var(--radius-btn); cursor: pointer;
+  }
+  .chart-tools button:hover { border-color: var(--accent-ink); color: var(--accent-ink); }
+  .data-asof { font-size: .72rem; color: var(--muted); margin-left: auto; }
+  .tool-msg { font-size: .72rem; color: var(--accent-ink); font-weight: 700; min-height: 1em; }
+
+  /* ---- point hover / tap highlight ----
+     JS toggles .hl on the <svg> while one point is active and .on on that
+     point's dot, label and leader line. Everything else dims. Classes only
+     (no inline styles) so the PNG/SVG export, which carries no CSS, stays clean. */
+  svg .pt, svg .pt-lbl, svg .pt-ldr { transition: opacity .12s; }
+  svg.hl .pt:not(.on), svg.hl .pt-lbl:not(.on), svg.hl .pt-ldr:not(.on) { opacity: .22; }
+  svg .pt.on { stroke: var(--ink); stroke-width: 2.5px; }
+  svg .pt-hit, svg .pt-lbl { cursor: pointer; }
+  .pt-tip {
+    position: absolute; z-index: 15; pointer-events: none; max-width: 260px;
+    background: var(--panel); color: var(--ink); border: 1px solid var(--accent-ink);
+    border-radius: var(--radius-btn); padding: 7px 10px; font-size: .75rem; line-height: 1.4;
+    box-shadow: 0 4px 14px rgba(0,0,0,.25);
+  }
+  .pt-tip .tip-name { font-weight: 800; }
+  .pt-tip .tip-fit { color: var(--muted); margin-top: 2px; }
+
+  /* ---- sortable table headers ---- */
+  table.bikes th.sortable { cursor: pointer; user-select: none; white-space: nowrap; }
+  table.bikes th.sortable:hover, table.bikes th.sortable:focus-visible { color: var(--accent-ink); }
+  table.bikes th.sorted { color: var(--ink); }
+
   footer { margin-top: 14px; font-size: .72rem; color: var(--muted); line-height: 1.5; }
   footer a { color: var(--accent-ink); }
 </style>
@@ -516,6 +551,15 @@
     </svg>
     <div class="fit-stats" id="fitStats" aria-live="polite"></div>
     <div class="mat-stats" id="matStats" aria-live="polite"></div>
+    <div class="chart-tools" id="chartTools">
+      <button type="button" id="savePngBtn" title="Download the chart as a PNG image">Save PNG</button>
+      <button type="button" id="saveSvgBtn" title="Download the chart as a scalable SVG image">Save SVG</button>
+      <button type="button" id="csvBtn" title="Download the data behind this view as a CSV file">Download CSV</button>
+      <button type="button" id="copyLinkBtn" title="Copy a link that opens this exact view">Copy link</button>
+      <span class="tool-msg" id="toolMsg" role="status" aria-live="polite"></span>
+      <span class="data-asof" id="dataAsOf"></span>
+    </div>
+    <div class="pt-tip" id="ptTip" hidden></div>
   </div>
 
   <!-- "All six" comparison view. Hidden unless that tab is active. The table,
@@ -543,8 +587,8 @@
           <tr>
             <th class="chk">On</th>
             <th id="thModel">Bike model</th>
-            <th>Frame</th>
-            <th class="num">Year</th>
+            <th id="thFrame">Frame</th>
+            <th class="num" id="thYear">Year</th>
             <th class="num" id="thPrice">Price</th>
             <th class="num">&Delta; price</th>
             <th class="num" id="thWeight">Weight</th>
@@ -590,7 +634,7 @@
   </div>
 
   <footer>
-    Prices are approximate US MSRP at launch; weights are manufacturer-claimed or magazine-verified for the listed build (typically size M/L, tubeless, no pedals). Treat individual points as ±0.5 lb / ±a few hundred dollars — the pattern is the point, not any single dot. CHF conversion uses <span id="rateNote">the latest available rate</span>, fetched from the European Central Bank via Frankfurter and cached locally for a few days — so it's current within a business day or so, not real-time. Frame material is the main frame construction; some "carbon" bikes use alloy rear triangles. Bikes you add, weight/price tweaks, and checkbox states live only on this page load — refresh clears them.
+    Prices are approximate US MSRP at launch; weights are manufacturer-claimed or magazine-verified for the listed build (typically size M/L, tubeless, no pedals). Treat individual points as ±0.5 lb / ±a few hundred dollars — the pattern is the point, not any single dot. CHF conversion uses <span id="rateNote">the latest available rate</span>, fetched from the European Central Bank via Frankfurter and cached locally for a few days — so it's current within a business day or so, not real-time. Frame material is the main frame construction; some "carbon" bikes use alloy rear triangles. Data snapshot: <span id="asOfNote"></span>. Bikes you add, weight/price tweaks, and checkbox states live only on this page load — refresh clears them. Your color scheme, units and currency are remembered on this device.
     <br>A <a href="https://www.postmillenniumrenaissance.com/">Post Millennium Renaissance</a> tool.
   </footer>
 </div>
@@ -725,6 +769,11 @@ const MATERIALS = {
   alloy:  { label: "Alloy"  }
   // titanium: { label: "Titanium" },  // ← this line is most of the work to add one
 };
+
+// When the DATA below was last researched (README: "July 2026"). Shown under
+// the chart, in the footer and on exported images. UPDATE THIS whenever the
+// data is refreshed - it is the visitor's only cue for how stale a price is.
+const DATA_AS_OF = "July 2026";
 
 /* =====================================================
    DATA — price in USD, weight in lbs (base units)
@@ -1407,6 +1456,7 @@ function drawAxesAndGrid(m, X, Y, xMin, xMax, yMin, yMax) {
 function render() {
   try {
     renderInner();
+    syncUrl();   // keep the address bar describing what's on screen
   } catch (err) {
     console.error("[mtb-weight-price] render() failed:", err);
     showFatalError();
@@ -1421,6 +1471,7 @@ function renderInner() {
 
   const bikes = allBikesIn(state.category).filter(b => !getBikeSession(b).off && matchesMat(b));
   svg.innerHTML = "";
+  resetPointHighlight();   // the old dots are gone; drop any pinned tooltip with them
 
   // display-space values. Each point carries its own session snapshot
   // (adj/priceAdj/user) so the rest of renderInner can keep reading
@@ -1468,8 +1519,10 @@ function renderInner() {
   // fit line
   const stats = document.getElementById("fitStats");
   stats.textContent = "";
+  let fitReg = null;   // kept so the hover tooltip can say how far each bike sits from the line
   if (state.fit) {
     const reg = linReg(pts);
+    fitReg = reg;
     if (reg) {
       const y1 = reg.slope * xMin + reg.intercept;
       const y2 = reg.slope * xMax + reg.intercept;
@@ -1504,14 +1557,44 @@ function renderInner() {
 
   renderMatStats();
 
-  // points
-  for (const p of pts) {
-    const c = svgEl("circle", { cx: X(p.x), cy: Y(p.y), r: 6, fill: p.user ? userC : pointC, stroke: cssVar("--panel"), "stroke-width": 1.5 });
-    const t = svgEl("title");
-    t.textContent = p.name + " ('" + String(p.year).slice(-2) + ")" + ((p.adj || p.priceAdj) ? " [adjusted]" : "") + " \u2014 " + fmtMoney(p.x) + ", " + fmtW(p.y) + " " + unitLabel();
-    c.appendChild(t);
+  // points. Each point gets: a visible dot, an invisible larger "hit" circle
+  // (a 6px dot is too small a touch target), and - further down - a label and
+  // maybe a leader line. ptEls[i] ties those together so hover can light them up.
+  const ptEls = pts.map(() => ({ dot: null, label: null, leader: null }));
+  pts.forEach((p, i) => {
+    const desc = p.name + " ('" + String(p.year).slice(-2) + ")" + ((p.adj || p.priceAdj) ? " [adjusted]" : "") +
+                 " \u2014 " + fmtMoney(p.x) + ", " + fmtW(p.y) + " " + unitLabel();
+    const c = svgEl("circle", {
+      cx: X(p.x), cy: Y(p.y), r: 6, fill: p.user ? userC : pointC,
+      stroke: cssVar("--panel"), "stroke-width": 1.5, class: "pt", role: "img", "aria-label": desc
+    });
     svg.appendChild(c);
-  }
+    ptEls[i].dot = c;
+    p._i = i;
+  });
+  // Hit circles go in after ALL dots so a neighbour's dot can never sit on top of one.
+  pts.forEach((p, i) => {
+    const hit = svgEl("circle", { cx: X(p.x), cy: Y(p.y), r: POINT_HIT_R, fill: "transparent", class: "pt-hit" });
+    bindPointEvents(hit, i);
+    svg.appendChild(hit);
+  });
+  // Tooltip text per point, built once per render (user-added names go in via textContent, never innerHTML).
+  pointTips = pts.map(p => {
+    let fitLine = "";
+    if (fitReg) {
+      const diff = p.y - (fitReg.slope * p.x + fitReg.intercept);   // weight above(+)/below(-) the line at this price
+      const mag = state.unit === "kg" ? Math.abs(diff).toFixed(2) : Math.abs(diff).toFixed(1);
+      fitLine = Math.abs(diff) < (state.unit === "kg" ? 0.02 : 0.05)
+        ? "Right on the fit line"
+        : mag + " " + unitLabel() + (diff < 0 ? " lighter" : " heavier") + " than the fit predicts at this price";
+    }
+    return {
+      name: p.name + " ('" + String(p.year).slice(-2) + ")" + ((p.adj || p.priceAdj) ? " *" : ""),
+      detail: (MATERIALS[p.mat]?.label ?? "\u2014") + " \u00b7 " + fmtMoney(p.x) + " \u00b7 " + fmtW(p.y) + " " + unitLabel(),
+      fit: fitLine
+    };
+  });
+  pointEls = ptEls;
 
   /* ---- label placement with collision avoidance ---- */
   const FS = 11;                       // label font size
@@ -1561,15 +1644,19 @@ function renderInner() {
     const far = Math.abs(chosen.dy) > 18;
     if (far) {
       const lx = chosen.anchor === "start" ? box.x - 2 : chosen.anchor === "end" ? box.x + box.w + 2 : px;
-      svg.appendChild(svgEl("line", { x1: px, y1: py, x2: lx, y2: box.y + hpx / 2, stroke: mutedC, "stroke-width": 0.8, opacity: .6 }));
+      const ldr = svgEl("line", { x1: px, y1: py, x2: lx, y2: box.y + hpx / 2, stroke: mutedC, "stroke-width": 0.8, opacity: .6, class: "pt-ldr" });
+      svg.appendChild(ldr);
+      ptEls[p._i].leader = ldr;
     }
     const lbl = svgEl("text", {
       x: chosen.anchor === "start" ? box.x : chosen.anchor === "end" ? box.x + box.w : box.x + box.w / 2,
       y: box.y + FS - 1,
       "text-anchor": chosen.anchor, "font-size": FS,
-      fill: p.user ? userC : inkC, "font-weight": p.user ? 700 : 500
+      fill: p.user ? userC : inkC, "font-weight": p.user ? 700 : 500, class: "pt-lbl"
     });
     lbl.textContent = text;
+    bindPointEvents(lbl, p._i);
+    ptEls[p._i].label = lbl;
     svg.appendChild(lbl);
   }
 
@@ -1690,6 +1777,7 @@ function fillNotePlaceholders(text, fits) {
 /** Draw the all-categories chart. Called from renderInner(), never directly. */
 function renderCompare() {
   svg.innerHTML = "";
+  resetPointHighlight();
   const m = M_CMP;
   const stats = document.getElementById("fitStats");
   document.getElementById("matStats").textContent = "";
@@ -2080,13 +2168,18 @@ function renderTable() {
   const tbody = document.getElementById("tableBody");
   tbody.innerHTML = "";
   document.getElementById("tableTitle").textContent = state.category + " bikes \u2014 tweak weight & price";
-  document.getElementById("thPrice").textContent = "Price (" + state.currency + ")";
-  document.getElementById("thWeight").textContent = "Weight (" + unitLabel() + ")";
   // Count reflects what's actually on the chart: checked AND passing the material filter
   const shown = allBikesIn(state.category).filter(b => !getBikeSession(b).off && matchesMat(b)).length;
-  document.getElementById("thModel").textContent = "Bike model (" + shown + ")";
+  applySortHeaders(shown);
 
-  const bikes = allBikesIn(state.category).sort((a, b) => b.price - a.price);
+  const sortCol = SORT_COLUMNS[tableSort.key];
+  const bikes = allBikesIn(state.category).sort((a, b) => {
+    const va = sortCol.value(a), vb = sortCol.value(b);
+    const cmp = typeof va === "string" ? va.localeCompare(vb) : va - vb;
+    // Equal keys fall back to name so the order is stable between re-renders
+    // (otherwise nudging one bike's price could reshuffle its tied neighbours).
+    return (tableSort.dir === "asc" ? cmp : -cmp) || a.name.localeCompare(b.name);
+  });
   for (const b of bikes) {
     const sess = getBikeSession(b);
     const tr = document.createElement("tr");
@@ -2182,6 +2275,57 @@ function renderTable() {
   }
 }
 
+/* ---- table sorting ----
+   SORT_COLUMNS is the registry: one entry per sortable header. To make another
+   column sortable, add an entry here and give its <th> the id named in `th`.
+   firstDir is the direction a first click sorts in (price: dearest first;
+   weight: lightest first; text: A-Z). value() reads the ADJUSTED figures, so the
+   table order follows what the chart is showing. */
+const SORT_COLUMNS = {
+  model:  { th: "thModel",  firstDir: "asc",  value: b => b.name },
+  frame:  { th: "thFrame",  firstDir: "asc",  value: b => MATERIALS[b.mat]?.label ?? "" },
+  year:   { th: "thYear",   firstDir: "desc", value: b => b.year },
+  price:  { th: "thPrice",  firstDir: "desc", value: b => b.price + (getBikeSession(b).priceAdj || 0) },
+  weight: { th: "thWeight", firstDir: "asc",  value: b => b.lbs + (getBikeSession(b).adj || 0) }
+};
+const tableSort = { key: "price", dir: "desc" };   // the original default order: dearest first
+
+/** Set each sortable header's label, arrow and aria-sort for the current sort. */
+function applySortHeaders(shownCount) {
+  const labels = {
+    model:  "Bike model (" + shownCount + ")",
+    frame:  "Frame",
+    year:   "Year",
+    price:  "Price (" + state.currency + ")",
+    weight: "Weight (" + unitLabel() + ")"
+  };
+  for (const [key, col] of Object.entries(SORT_COLUMNS)) {
+    const th = document.getElementById(col.th);
+    const active = tableSort.key === key;
+    th.textContent = labels[key] + (active ? (tableSort.dir === "asc" ? " ▲" : " ▼") : "");
+    th.classList.add("sortable");
+    th.classList.toggle("sorted", active);
+    th.tabIndex = 0;
+    th.dataset.sort = key;
+    th.setAttribute("aria-sort", active ? (tableSort.dir === "asc" ? "ascending" : "descending") : "none");
+    th.title = "Sort by " + labels[key].replace(/ \(\d+\)$/, "").toLowerCase();
+  }
+}
+
+/** Header click / Enter / Space: same column flips direction, a new column starts at its firstDir. */
+function onSortHeader(e) {
+  const th = e.target.closest("th[data-sort]");
+  if (!th) return;
+  if (e.type === "keydown" && e.key !== "Enter" && e.key !== " ") return;
+  e.preventDefault();
+  const key = th.dataset.sort;
+  if (tableSort.key === key) tableSort.dir = tableSort.dir === "asc" ? "desc" : "asc";
+  else { tableSort.key = key; tableSort.dir = SORT_COLUMNS[key].firstDir; }
+  renderTable();
+}
+document.querySelector("table.bikes thead").addEventListener("click", onSortHeader);
+document.querySelector("table.bikes thead").addEventListener("keydown", onSortHeader);
+
 const tableToggle = document.getElementById("tableToggle");
 tableToggle.onclick = () => {
   const wrap = document.getElementById("tableWrap");
@@ -2244,6 +2388,7 @@ unitToggleEl.querySelectorAll("button").forEach(b => {
     state.unit = b.dataset.unit;
     setToggleActive(unitToggleEl, b);
     document.getElementById("weightLabel").textContent = "Weight (" + state.unit + ")";
+    savePrefs();
     render();
   };
 });
@@ -2255,6 +2400,7 @@ currToggleEl.querySelectorAll("button").forEach(b => {
     state.currency = b.dataset.curr;
     setToggleActive(currToggleEl, b);
     document.getElementById("priceLabel").textContent = "Price (" + state.currency + ")";
+    savePrefs();
     render();
   };
 });
@@ -2294,6 +2440,7 @@ themeToggleEl.querySelectorAll("button").forEach(b => {
   b.onclick = () => {
     document.documentElement.setAttribute("data-theme", b.dataset.theme);
     setToggleActive(themeToggleEl, b);
+    savePrefs();
     setTimeout(render, 50); // re-read CSS vars after theme swap
   };
 });
@@ -2435,6 +2582,330 @@ function renderChips() {
     wrap.appendChild(chip);
   });
 }
+
+/* =====================================================
+   POINT HOVER / TAP HIGHLIGHT
+   Mouse: hovering a dot (or its label) dims everything else and shows a
+   tooltip. Touch: tap pins it; tap the same point, the background or press
+   Esc to release. Single-category view only - the "All six" chart has no
+   individual points to pick.
+===================================================== */
+const POINT_HIT_R = 13;       // px (SVG units) radius of the invisible touch target around each dot
+const TIP_GAP_PX = 10;        // gap between the dot and its tooltip
+let pointEls = [];            // per point: { dot, label, leader } - rebuilt every render
+let pointTips = [];           // per point: { name, detail, fit } - rebuilt every render
+let pinnedPoint = null;       // index of the tapped/pinned point, or null
+const tipEl = document.getElementById("ptTip");
+
+/** Called at the top of every chart redraw: the old SVG nodes are gone, so forget them. */
+function resetPointHighlight() {
+  pointEls = []; pointTips = []; pinnedPoint = null;
+  svg.classList.remove("hl");
+  tipEl.hidden = true;
+}
+
+function clearPointHighlight() {
+  svg.classList.remove("hl");
+  for (const e of pointEls) for (const n of [e.dot, e.label, e.leader]) if (n) n.classList.remove("on");
+  tipEl.hidden = true;
+}
+
+function showPoint(i) {
+  clearPointHighlight();
+  const els = pointEls[i], tip = pointTips[i];
+  if (!els || !tip) return;
+  svg.classList.add("hl");
+  for (const n of [els.dot, els.label, els.leader]) if (n) n.classList.add("on");
+
+  tipEl.textContent = "";
+  const nameDiv = document.createElement("div");
+  nameDiv.className = "tip-name"; nameDiv.textContent = tip.name;
+  const detailDiv = document.createElement("div");
+  detailDiv.textContent = tip.detail;
+  tipEl.append(nameDiv, detailDiv);
+  if (tip.fit) {
+    const fitDiv = document.createElement("div");
+    fitDiv.className = "tip-fit"; fitDiv.textContent = tip.fit;
+    tipEl.appendChild(fitDiv);
+  }
+  tipEl.hidden = false;   // must be visible to be measured
+
+  // Position relative to the chart panel, above the dot unless there's no room.
+  const panel = tipEl.offsetParent || tipEl.parentElement;
+  const pr = panel.getBoundingClientRect(), dr = els.dot.getBoundingClientRect();
+  const tw = tipEl.offsetWidth, th = tipEl.offsetHeight;
+  let left = dr.left + dr.width / 2 - pr.left - tw / 2;
+  left = Math.max(4, Math.min(left, pr.width - tw - 4));
+  let top = dr.top - pr.top - th - TIP_GAP_PX;
+  if (top < 4) top = dr.bottom - pr.top + TIP_GAP_PX;
+  tipEl.style.left = left + "px";
+  tipEl.style.top = top + "px";
+}
+
+/** Wire hover (mouse), tap-to-pin (touch/mouse click) onto a dot-hit circle or a label. */
+function bindPointEvents(el, i) {
+  el.addEventListener("pointerenter", e => { if (e.pointerType === "mouse") showPoint(i); });
+  el.addEventListener("pointerleave", e => {
+    if (e.pointerType !== "mouse") return;
+    if (pinnedPoint !== null) showPoint(pinnedPoint); else clearPointHighlight();
+  });
+  el.addEventListener("click", e => {
+    e.stopPropagation();   // the background click below would otherwise unpin immediately
+    if (pinnedPoint === i) { pinnedPoint = null; clearPointHighlight(); }
+    else { pinnedPoint = i; showPoint(i); }
+  });
+}
+svg.addEventListener("click", () => { pinnedPoint = null; clearPointHighlight(); });
+document.addEventListener("keydown", e => {
+  if (e.key === "Escape") { pinnedPoint = null; clearPointHighlight(); }
+});
+
+/* =====================================================
+   SHAREABLE VIEW (URL hash) + REMEMBERED PREFERENCES
+   The address bar carries the view: #cat=Enduro&unit=kg&cur=CHF&mat=carbon&fit=0&theme=leogang
+   Only values that differ from DEFAULT_URL_STATE are written, to keep the
+   URL short; "Copy link" writes all of them so a shared link means the same
+   thing to a visitor whose own saved preferences differ.
+   Precedence on load: defaults < saved preferences (localStorage) < URL.
+   localStorage holds ONLY theme/unit/currency, and the tool works with it
+   empty or blocked. Session edits (added bikes, nudges, checkboxes) are not
+   in the URL - see the footer.
+===================================================== */
+const PREFS_KEY = "pmr_wvp_prefs";
+const DEFAULT_URL_STATE = { cat: "XC", unit: "lbs", cur: "USD", mat: "all", fit: "1", theme: "fortwilliam" };
+const TOOL_MSG_MS = 2500;   // how long "Link copied" etc. stays on screen
+
+const currentTheme = () => document.documentElement.getAttribute("data-theme");
+// The themes ARE the buttons in #themeToggle - one registry, no second list to keep in sync.
+const validThemes = () => Array.from(themeToggleEl.querySelectorAll("button")).map(b => b.dataset.theme);
+
+/** Keep only values that are legal right now; anything else is silently ignored. */
+function sanitizeUrlState(raw) {
+  const out = {};
+  if (raw.cat === COMPARE_ID || (raw.cat && Object.prototype.hasOwnProperty.call(DATA, raw.cat))) out.cat = raw.cat;
+  if (raw.unit === "lbs" || raw.unit === "kg") out.unit = raw.unit;
+  if (raw.cur === "USD" || raw.cur === "CHF") out.cur = raw.cur;
+  if (raw.mat === "all" || (raw.mat && Object.prototype.hasOwnProperty.call(MATERIALS, raw.mat))) out.mat = raw.mat;
+  if (raw.fit === "0" || raw.fit === "1") out.fit = raw.fit;
+  if (raw.theme && validThemes().includes(raw.theme)) out.theme = raw.theme;
+  return out;
+}
+
+function parseHash() {
+  const p = new URLSearchParams(location.hash.replace(/^#/, ""));
+  return { cat: p.get("cat"), unit: p.get("unit"), cur: p.get("cur"), mat: p.get("mat"), fit: p.get("fit"), theme: p.get("theme") };
+}
+
+function loadPrefs() {
+  try {
+    const o = JSON.parse(localStorage.getItem(PREFS_KEY) || "{}");
+    return o && typeof o === "object" ? { unit: o.unit, cur: o.currency, theme: o.theme } : {};
+  } catch (e) { return {}; }   // blocked or corrupt storage: just use defaults
+}
+function savePrefs() {
+  try {
+    localStorage.setItem(PREFS_KEY, JSON.stringify({ theme: currentTheme(), unit: state.unit, currency: state.currency }));
+  } catch (e) { /* storage unavailable (private window, sandboxed frame): preferences just won't persist */ }
+}
+
+/** The whole view as explicit URL params (used by Copy link). */
+function fullUrlParams() {
+  return {
+    cat: state.category, unit: state.unit, cur: state.currency, mat: state.material,
+    fit: state.fit ? "1" : "0", theme: currentTheme()
+  };
+}
+
+/** Rewrite the address bar to match the view, without adding history entries. */
+function syncUrl() {
+  try {
+    const full = fullUrlParams(), p = new URLSearchParams();
+    for (const k of Object.keys(DEFAULT_URL_STATE)) if (full[k] !== DEFAULT_URL_STATE[k]) p.set(k, full[k]);
+    const qs = p.toString();
+    history.replaceState(null, "", location.pathname + location.search + (qs ? "#" + qs : ""));
+  } catch (e) { /* some embeds forbid history changes; the tool works fine without it */ }
+}
+
+/** Copy `state`/theme from a sanitized URL-state object. Does not touch the DOM controls. */
+function applyUrlState(s) {
+  if (s.cat)   state.category = s.cat;
+  if (s.unit)  state.unit = s.unit;
+  if (s.cur)   state.currency = s.cur;
+  if (s.mat)   state.material = s.mat;
+  if (s.fit)   state.fit = s.fit === "1";
+  if (s.theme) document.documentElement.setAttribute("data-theme", s.theme);
+}
+
+/** Bring every control (tabs, toggles, labels) in line with `state`. Call before render(). */
+function syncControlsToState() {
+  tabsEl.querySelectorAll("button").forEach(x => {
+    const on = x.textContent === state.category;
+    x.classList.toggle("active", on);
+    x.setAttribute("aria-selected", String(on));
+  });
+  setToggleActive(unitToggleEl, unitToggleEl.querySelector('[data-unit="' + state.unit + '"]'));
+  setToggleActive(currToggleEl, currToggleEl.querySelector('[data-curr="' + state.currency + '"]'));
+  setToggleActive(matToggleEl, matToggleEl.querySelector('[data-mat="' + state.material + '"]'));
+  setToggleActive(themeToggleEl, themeToggleEl.querySelector('[data-theme="' + currentTheme() + '"]'));
+  fitBtn.classList.toggle("on", state.fit);
+  fitBtn.setAttribute("aria-pressed", String(state.fit));
+  fitBtn.textContent = "Fit line: " + (state.fit ? "ON" : "OFF");
+  document.getElementById("weightLabel").textContent = "Weight (" + state.unit + ")";
+  document.getElementById("priceLabel").textContent = "Price (" + state.currency + ")";
+  if (state.category !== COMPARE_ID) document.getElementById("addTitle").textContent = "Add a bike — " + state.category;
+  renderChips();
+}
+
+// Someone edits the hash by hand or follows an in-page link: re-apply it.
+window.addEventListener("hashchange", () => {
+  applyUrlState(Object.assign({}, DEFAULT_URL_STATE, sanitizeUrlState(parseHash())));
+  syncControlsToState();
+  render();
+});
+
+/* =====================================================
+   EXPORTS: PNG / SVG / CSV / COPY LINK
+   The chart's colors are already resolved to literal values when drawn
+   (cssVar() reads the live theme), so a cloned <svg> carries its own
+   styling and needs no stylesheet. The export adds a title band on top
+   and a credit/as-of line below, on the theme's panel color.
+===================================================== */
+const EXPORT_PAD_TOP = 48;      // px (SVG units) of title band above the chart
+const EXPORT_PAD_BOTTOM = 30;   // px of credit band below the chart
+const EXPORT_PNG_SCALE = 2;     // PNG pixels per SVG unit: 2 = crisp on retina and in Pinkbike posts
+const EXPORT_FONT = '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif';
+
+function toolMessage(text) {
+  const el = document.getElementById("toolMsg");
+  el.textContent = text;
+  clearTimeout(toolMessage.t);
+  toolMessage.t = setTimeout(() => { el.textContent = ""; }, TOOL_MSG_MS);
+}
+
+function slug(s) { return s.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, ""); }
+
+function downloadBlob(blob, filename) {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url; a.download = filename;
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+function exportFilenameBase() {
+  const bits = ["pmr-weight-vs-price", slug(state.category === COMPARE_ID ? "all-six" : state.category)];
+  if (state.category !== COMPARE_ID && state.material !== "all") bits.push(state.material);
+  return bits.join("-");
+}
+
+/** Build a standalone SVG of the current chart with title + credit. Returns {xml, w, h}. */
+function buildExportSvg() {
+  const clone = svg.cloneNode(true);
+  const panelC = cssVar("--panel"), inkC = cssVar("--ink"), mutedC = cssVar("--muted");
+  const totalH = H + EXPORT_PAD_TOP + EXPORT_PAD_BOTTOM;
+  clone.setAttribute("xmlns", SVG_NS);
+  clone.setAttribute("viewBox", "0 " + (-EXPORT_PAD_TOP) + " " + W + " " + totalH);
+  clone.setAttribute("width", W * EXPORT_PNG_SCALE);
+  clone.setAttribute("height", totalH * EXPORT_PNG_SCALE);
+  clone.setAttribute("font-family", EXPORT_FONT);
+  clone.removeAttribute("class");
+  clone.querySelectorAll(".pt-hit").forEach(n => n.remove());   // invisible touch targets
+  clone.querySelectorAll(".on").forEach(n => n.classList.remove("on"));
+
+  const mk = (tag, attrs, text) => {
+    const n = document.createElementNS(SVG_NS, tag);
+    for (const k in attrs) n.setAttribute(k, attrs[k]);
+    if (text != null) n.textContent = text;
+    return n;
+  };
+  const title = state.category === COMPARE_ID
+    ? "Weight vs. Price — all six categories"
+    : "Weight vs. Price — " + state.category +
+      (state.material !== "all" ? " (" + MATERIALS[state.material].label + " frames)" : "");
+  const credit = "Post Millennium Renaissance · postmillenniumrenaissance.com · US MSRP, claimed weights · data as of " + DATA_AS_OF;
+
+  const first = clone.firstChild;
+  clone.insertBefore(mk("rect", { x: 0, y: -EXPORT_PAD_TOP, width: W, height: totalH, fill: panelC }), first);
+  clone.insertBefore(mk("text", { x: M.left, y: -18, "font-size": 20, "font-weight": 800, fill: inkC }, title), first);
+  clone.appendChild(mk("text", { x: M.left, y: H + 20, "font-size": 11.5, fill: mutedC }, credit));
+  return { xml: new XMLSerializer().serializeToString(clone), w: W * EXPORT_PNG_SCALE, h: totalH * EXPORT_PNG_SCALE };
+}
+
+function saveSvg() {
+  try {
+    downloadBlob(new Blob([buildExportSvg().xml], { type: "image/svg+xml;charset=utf-8" }), exportFilenameBase() + ".svg");
+    toolMessage("SVG saved");
+  } catch (e) { console.error(e); toolMessage("Couldn't save the SVG"); }
+}
+
+function savePng() {
+  try {
+    const { xml, w, h } = buildExportSvg();
+    const img = new Image();
+    img.onload = () => {
+      const canvas = document.createElement("canvas");
+      canvas.width = w; canvas.height = h;
+      canvas.getContext("2d").drawImage(img, 0, 0, w, h);
+      canvas.toBlob(blob => {
+        if (!blob) { toolMessage("Couldn't save the PNG"); return; }
+        downloadBlob(blob, exportFilenameBase() + ".png");
+        toolMessage("PNG saved");
+      }, "image/png");
+    };
+    img.onerror = () => toolMessage("Couldn't save the PNG");
+    img.src = "data:image/svg+xml;charset=utf-8," + encodeURIComponent(xml);
+  } catch (e) { console.error(e); toolMessage("Couldn't save the PNG"); }
+}
+
+/** One CSV field, quoted when needed. A leading = + - @ would be run as a formula by Excel, so it gets a ' in front. */
+function csvField(v) {
+  let s = String(v);
+  if (/^[=+\-@]/.test(s)) s = "'" + s;
+  return /[",\n\r]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
+}
+
+/** CSV of the bikes behind the current view (every category on the "All six" tab). */
+function saveCsv() {
+  try {
+    const cats = state.category === COMPARE_ID ? Object.keys(DATA) : [state.category];
+    const rows = [["category", "model", "frame", "model_year", "price_usd", "weight_lbs", "adjusted", "user_added", "on_chart"]];
+    for (const cat of cats) {
+      for (const b of allBikesIn(cat)) {
+        const s = getBikeSession(b);
+        rows.push([
+          cat, b.name, MATERIALS[b.mat]?.label ?? "", b.year,
+          Math.round(b.price + (s.priceAdj || 0)), +(b.lbs + (s.adj || 0)).toFixed(2),
+          (s.adj || s.priceAdj) ? "yes" : "no", isUserBike(cat, b) ? "yes" : "no",
+          (!s.off && matchesMat(b)) ? "yes" : "no"
+        ]);
+      }
+    }
+    const csv = rows.map(r => r.map(csvField).join(",")).join("\r\n") + "\r\n";
+    downloadBlob(new Blob([csv], { type: "text/csv;charset=utf-8" }), exportFilenameBase().replace(/-carbon$|-alloy$/, "") + ".csv");
+    toolMessage("CSV saved");
+  } catch (e) { console.error(e); toolMessage("Couldn't save the CSV"); }
+}
+
+function copyLink() {
+  const url = location.href.split("#")[0] + "#" + new URLSearchParams(fullUrlParams()).toString();
+  const done = () => toolMessage("Link copied");
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(url).then(done, () => window.prompt("Copy this link:", url));
+  } else {
+    window.prompt("Copy this link:", url);   // clipboard API blocked (some embeds): let the visitor copy by hand
+  }
+}
+
+document.getElementById("savePngBtn").onclick = savePng;
+document.getElementById("saveSvgBtn").onclick = saveSvg;
+document.getElementById("csvBtn").onclick = saveCsv;
+document.getElementById("copyLinkBtn").onclick = copyLink;
+document.getElementById("dataAsOf").textContent = "Prices & claimed weights as of " + DATA_AS_OF;
+document.getElementById("asOfNote").textContent = DATA_AS_OF;
+
+// Initial view: defaults < saved preferences < URL.
+applyUrlState(Object.assign({}, sanitizeUrlState(loadPrefs()), sanitizeUrlState(parseHash())));
+syncControlsToState();
 
 runDataValidation();
 updateFxNote();
