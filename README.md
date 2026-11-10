@@ -17,7 +17,14 @@ All seeded bikes were researched via web search against manufacturer sites, Pink
 - **No live pricing/inventory feed.** Everything is hardcoded in the `DATA` object in the script. If a manufacturer discontinues a model or changes spec, the widget won't know.
 - **Coverage is not exhaustive.** Each category includes roughly 13–20 bikes, weighted toward well-known, widely reviewed flagship builds. Many legitimate models (budget-tier builds, regional brands, alloy-frame versions of the same bike) are omitted.
 - **The fit line is a simple linear regression** (least squares) on whatever bikes are currently checked "on." With only 13–20 points per category, it's sensitive to outliers — check the R² readout under the chart before treating the slope as meaningful, especially in categories with a wide price spread but few bikes at the extremes.
-- **User-added bikes, weight/price adjustments, and checkbox states are session-only.** Nothing persists after a page refresh. If someone shares a link to the page, they get the default dataset, not your edits. (The FX rate is the one exception — it is cached.)
+- **User-added bikes, weight/price adjustments, and checkbox states are session-only.** Nothing persists after a page refresh, and a shared link carries only the *view* (see below), not your edits. Saved on-device in `localStorage`: the FX rate, plus your color scheme, units and currency.
+
+### Sharing, exports and interaction
+
+- **Deep links.** The address bar tracks the view: `#cat=Enduro&unit=kg&cur=CHF&mat=carbon&fit=0&theme=leogang` (only non-default values appear). The iframe wrapper can open the tool on a specific view by appending a hash to the iframe `src`. "Copy link" writes every value explicitly. Precedence on load: defaults < saved preferences < URL.
+- **Save PNG / SVG / CSV.** PNG and SVG carry a title and a credit line with the data date. CSV lists every bike in the current category (all six on the comparison tab) with adjusted values, in USD and lbs. If a host page's iframe sandbox lacks `allow-downloads`, these buttons do nothing there; they work on the direct page.
+- **Hover / tap.** Hovering a dot dims the rest and shows a tooltip (including distance from the fit line); on touch, tap to pin, tap again or the background to release.
+- **Data date.** `DATA_AS_OF` (above the data block) feeds the chart footer, the page footer and exports. Update it whenever the data is refreshed.
 
 ### The "All six" comparison tab and its significance test
 
