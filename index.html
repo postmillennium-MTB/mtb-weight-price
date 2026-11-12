@@ -858,7 +858,15 @@ const DATA = {
     { name: "Mondraker Summum Carbon RR MX",     year: 2024, price: 9500,  lbs: 37.0, mat: "carbon" },
     { name: "Devinci Chainsaw DH",               year: 2024, price: 6499,  lbs: 39.5, mat: "alloy"  },
     { name: "Propain Rage CF Highend",           year: 2024, price: 6299,  lbs: 37.3, mat: "carbon" },
-    { name: "Nukeproof Dissent 297",             year: 2023, price: 6499,  lbs: 37.3, mat: "alloy"  }
+    { name: "Nukeproof Dissent 297",             year: 2023, price: 6499,  lbs: 37.3, mat: "alloy"  },
+    // 2026 Phoenix (pivotcycles.com/en-us/bikes/phoenix): price and complete-bike weight as listed by Pivot
+    // (size S3; frame with cranks 11.29 lb). Frame material confirmed carbon by the site owner.
+    { name: "Pivot Phoenix Ride GX",             year: 2026, price: 7899,  lbs: 35.98, mat: "carbon" },
+    { name: "Pivot Phoenix Pro Saint",           year: 2026, price: 9499,  lbs: 35.36, mat: "carbon" },
+    // Source: Pinkbike first ride, "2025 Knolly Delirium" (size S3, Saint build, $8,099, 38 lb / 17.2 kg).
+    // Filed under DH (a park bike). mat "alloy" is from Knolly's all-aluminum lineup, not stated in the
+    // source as supplied - UNVERIFIED; change to "carbon" if wrong.
+    { name: "Knolly Delirium Saint",             year: 2025, price: 8099,  lbs: 38.0,  mat: "alloy"  }
   ],
   "Full Power": [
     { name: "Specialized S-Works Turbo Levo 4",      year: 2025, price: 14000, lbs: 52.0, mat: "carbon" },
@@ -1125,7 +1133,7 @@ function runDataValidation() {
    STATE
 ===================================================== */
 let state = {
-  category: "XC",
+  category: "Trail",   // the tab shown on first open (also DEFAULT_URL_STATE.cat below - keep them equal)
   unit: "lbs",       // "lbs" | "kg"
   currency: "USD",   // "USD" | "CHF"
   material: "all",   // "all" | a key from MATERIALS (see MATERIALS config above DATA)
@@ -2672,7 +2680,7 @@ document.addEventListener("keydown", e => {
    in the URL - see the footer.
 ===================================================== */
 const PREFS_KEY = "pmr_wvp_prefs";
-const DEFAULT_URL_STATE = { cat: "XC", unit: "lbs", cur: "USD", mat: "all", fit: "1", theme: "fortwilliam" };
+const DEFAULT_URL_STATE = { cat: "Trail", unit: "lbs", cur: "USD", mat: "all", fit: "1", theme: "fortwilliam" };
 const TOOL_MSG_MS = 2500;   // how long "Link copied" etc. stays on screen
 
 const currentTheme = () => document.documentElement.getAttribute("data-theme");
