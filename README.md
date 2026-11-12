@@ -44,7 +44,7 @@ The seventh tab draws all six fit lines together and labels each one significant
 Every bike carries a `mat` tag (`"carbon"` or `"alloy"`), driving the Carbon/Alloy/Both filter and the "carbon adds $X, sheds Y lbs" readout. Caveats worth knowing before leaning on that number:
 
 - **The tag describes the main frame construction only.** Several bikes marketed as carbon use an alloy rear triangle or alloy links; they are tagged `carbon` here. Where a model exists in both materials, the tag reflects the *specific build listed*, not the platform.
-- **Alloy coverage is thin, because the dataset is flagship-tier.** Current counts: XC 14C/0Al, Trail 14C/2Al, Enduro 15C/1Al, DH 12C/5Al, Full Power 12C/5Al, Lite eMTB 11C/1Al. The comparison stat is suppressed unless a category has at least 2 of each, so it currently only appears in Trail, DH, and Full Power.
+- **Alloy coverage is thin, because the dataset is flagship-tier.** Current counts: XC 14C/0Al, Trail 14C/2Al, Enduro 15C/1Al, DH 14C/5Al, Full Power 12C/5Al, Lite eMTB 11C/1Al. The comparison stat is suppressed unless a category has at least 2 of each, so it currently only appears in Trail, DH, and Full Power.
 - **The comparison is not a like-for-like frame swap.** It averages different bikes from different brands at different spec levels, so it conflates the material with everything else that differs between those bikes. A carbon Megatower and an alloy Meta differ by far more than frame material. Treat the number as a loose directional signal, not a material cost. The honest version of this stat requires same-model carbon/alloy pairs (Ripmo vs. Ripmo AF), which the dataset doesn't yet have.
 
 ## Suggestions for future updates
